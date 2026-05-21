@@ -1,59 +1,138 @@
 #include <Arduino.h>
-#include <Bluepad32.h>
-#include "pch.h"
-#include "Drone.h"
-#include "DeltaTime.h"
+#include <WiFi.h>
+#include <WebSocketsServer.h>
+#include <ArduinoJson.h>
+#include "config.h"
 
-static Drone::Drone   drone;
-static GamepadPtr     gamepad = nullptr;
+// ── Globals ───────────────────────────────────────────────────────────────────
 
-void onConnect(GamepadPtr gp)    { gamepad = gp; }
-void onDisconnect(GamepadPtr gp) { gamepad = nullptr; }
+static WebSocketsServer ws(WS_PORT);
 
-static Drone::Movement joystickToMovement(GamepadPtr gp) {
-    Drone::Movement mov{};
+static bool     armed        = false;
+static uint32_t lastCmdMs    = 0;
+static uint32_t lastStatusMs = 0;
+static uint8_t  motorVals[4] = {0, 0, 0, 0};   // FL, FR, BL, BR
 
-    int ly = gp->axisY();   // left  stick Y  → throttle
-    int lx = gp->axisX();   // left  stick X  → yaw
-    int rx = gp->axisRX();  // right stick X  → roll
-    int ry = gp->axisRY();  // right stick Y  → pitch
+static constexpr uint8_t motorPins[4] = {
+    PIN_MOTOR_FL, PIN_MOTOR_FR, PIN_MOTOR_BL, PIN_MOTOR_BR
+};
 
-    // Throttle: palanca izquierda arriba (ly = -512) → máximo
-    if (-ly > DEADZONE)
-        mov.throttle = (int16_t)map(-ly, DEADZONE, 512, 0, 255);
+// ── Motor control ─────────────────────────────────────────────────────────────
 
-    if (abs(rx) > DEADZONE) mov.roll  =  rx;
-    if (abs(ry) > DEADZONE) mov.pitch = -ry;  // invertir: arriba = pitch forward
-    if (abs(lx) > DEADZONE) mov.yaw   =  lx;
-
-    return mov;
+static void writeMotors(uint8_t fl, uint8_t fr, uint8_t bl, uint8_t br) {
+    motorVals[0] = fl;  motorVals[1] = fr;
+    motorVals[2] = bl;  motorVals[3] = br;
+    analogWrite(PIN_MOTOR_FL, fl);
+    analogWrite(PIN_MOTOR_FR, fr);
+    analogWrite(PIN_MOTOR_BL, bl);
+    analogWrite(PIN_MOTOR_BR, br);
 }
 
-static uint32_t lastMs = 0;
+static void stopMotors() { writeMotors(0, 0, 0, 0); }
+
+// Quadcopter X-config mixing
+// t: throttle 0-255 | y: yaw -127..127 | p: pitch -127..127 | r: roll -127..127
+static void applyMovement(uint8_t t, int8_t y, int8_t p, int8_t r) {
+    auto clamp = [](int v) -> uint8_t { return (uint8_t)constrain(v, 0, PWM_MAX); };
+    writeMotors(
+        clamp(t - r + p + y),   // FL (CW)
+        clamp(t + r + p - y),   // FR (CCW)
+        clamp(t - r - p - y),   // BL (CCW)
+        clamp(t + r - p + y)    // BR (CW)
+    );
+}
+
+// ── WebSocket handler ─────────────────────────────────────────────────────────
+
+static void onWsEvent(uint8_t id, WStype_t type, uint8_t* payload, size_t len) {
+    switch (type) {
+
+    case WStype_CONNECTED:
+        LOG("[WS] Client %d connected from %s\n", id,
+            ws.remoteIP(id).toString().c_str());
+        break;
+
+    case WStype_DISCONNECTED:
+        LOG("[WS] Client %d disconnected\n", id);
+        stopMotors();
+        armed = false;
+        break;
+
+    case WStype_TEXT: {
+        JsonDocument doc;
+        if (deserializeJson(doc, payload, len)) break;
+
+        const char* cmd = doc["cmd"] | "";
+
+        if (strcmp(cmd, "arm") == 0) {
+            armed     = true;
+            lastCmdMs = millis();
+            LOG("[WS] Armed\n");
+
+        } else if (strcmp(cmd, "disarm") == 0) {
+            armed = false;
+            stopMotors();
+            LOG("[WS] Disarmed\n");
+
+        } else if (strcmp(cmd, "move") == 0 && armed) {
+            uint8_t t     = doc["t"] | 0;
+            int8_t  yaw   = doc["y"] | 0;
+            int8_t  pitch = doc["p"] | 0;
+            int8_t  roll  = doc["r"] | 0;
+            applyMovement(t, yaw, pitch, roll);
+            lastCmdMs = millis();
+        }
+        break;
+    }
+
+    default: break;
+    }
+}
+
+// ── Setup / Loop ──────────────────────────────────────────────────────────────
 
 void setup() {
-#ifdef DEBUG
     Serial.begin(115200);
-#endif
-    BP32.setup(&onConnect, &onDisconnect);
-    BP32.forgetBluetoothKeys();
 
-    // init() calibra el giroscopio (~1 segundo, mantener el dron quieto)
-    drone.init();
-    lastMs = millis();
+    analogWriteResolution(PWM_BITS);
+    analogWriteFrequency(PWM_FREQ);
+    for (uint8_t pin : motorPins) {
+        pinMode(pin, OUTPUT);
+        analogWrite(pin, 0);
+    }
+    LOG("Motors initialized on pins %d %d %d %d\n",
+        PIN_MOTOR_FL, PIN_MOTOR_FR, PIN_MOTOR_BL, PIN_MOTOR_BR);
+
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    LOG("Connecting to %s", WIFI_SSID);
+    while (WiFi.status() != WL_CONNECTED) { delay(500); LOG("."); }
+    LOG("\nIP: %s\n", WiFi.localIP().toString().c_str());
+
+    ws.begin();
+    ws.onEvent(onWsEvent);
+    LOG("WebSocket server on port %d\n", WS_PORT);
 }
 
 void loop() {
+    ws.loop();
+
     uint32_t now = millis();
-    DeltaTime dt(now - lastMs);
-    lastMs = now;
 
-    BP32.update();
-
-    if (gamepad && gamepad->isConnected()) {
-        Drone::Movement mov = joystickToMovement(gamepad);
-        drone.setMovement(mov);
+    // Watchdog: disarm if no move command in time
+    if (armed && (now - lastCmdMs > WATCHDOG_MS)) {
+        stopMotors();
+        armed = false;
+        LOG("[WDG] Timeout — disarmed\n");
     }
 
-    drone.onUpdate(dt);
+    // Broadcast motor status to all connected clients
+    if (now - lastStatusMs >= STATUS_MS) {
+        lastStatusMs = now;
+        char buf[64];
+        snprintf(buf, sizeof(buf),
+            "{\"motors\":[%d,%d,%d,%d],\"armed\":%s}",
+            motorVals[0], motorVals[1], motorVals[2], motorVals[3],
+            armed ? "true" : "false");
+        ws.broadcastTXT(buf);
+    }
 }
