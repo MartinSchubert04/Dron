@@ -4,6 +4,9 @@
 #define WIFI_SSID    "YOUR_WIFI_SSID"
 #define WIFI_PASS    "YOUR_WIFI_PASSWORD"
 
+// ── mDNS ─────────────────────────────────────────────────────────────────────
+#define MDNS_NAME    "drone"      // accesible como drone.local
+
 // ── WebSocket server ──────────────────────────────────────────────────────────
 #define WS_PORT      81
 

@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
 #include "config.h"
@@ -107,6 +108,10 @@ void setup() {
     LOG("Connecting to %s", WIFI_SSID);
     while (WiFi.status() != WL_CONNECTED) { delay(500); LOG("."); }
     LOG("\nIP: %s\n", WiFi.localIP().toString().c_str());
+
+    MDNS.begin(MDNS_NAME);
+    MDNS.addService("ws", "tcp", WS_PORT);
+    LOG("mDNS: ws://%s.local:%d\n", MDNS_NAME, WS_PORT);
 
     ws.begin();
     ws.onEvent(onWsEvent);
