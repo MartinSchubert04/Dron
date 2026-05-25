@@ -1,7 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-
-// Assuming your backend runs on port 8000
-const API_BASE_URL = 'http://localhost:8000';
+import { useSettings } from '../context/SettingsContext';
 
 interface PluginState {
   available: string[];
@@ -9,6 +7,7 @@ interface PluginState {
 }
 
 export function usePlugins() {
+  const { apiBase } = useSettings();
   const [pluginsEnabled, setPluginsEnabled] = useState<boolean>(false);
   const [availablePlugins, setAvailablePlugins] = useState<string[]>([]);
   const [runningPlugins, setRunningPlugins] = useState<Set<string>>(new Set());
@@ -18,7 +17,7 @@ export function usePlugins() {
   // Function to fetch the current state of plugins from the backend
   const fetchPluginState = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/plugins`);
+      const response = await fetch(`${apiBase}/plugins`);
       if (!response.ok) {
         // Backend returns 404 when plugins are disabled.
         if (response.status === 404) {
@@ -39,7 +38,7 @@ export function usePlugins() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [apiBase]);
 
   // Function to toggle a plugin on or off
   const togglePlugin = useCallback(async (name: string) => {
@@ -48,7 +47,7 @@ export function usePlugins() {
     const endpoint = isRunning ? 'stop' : 'start';
 
     try {
-      const response = await fetch(`${API_BASE_URL}/plugins/${name}/${endpoint}`, {
+      const response = await fetch(`${apiBase}/plugins/${name}/${endpoint}`, {
         method: 'POST',
       });
       if (!response.ok) {
@@ -59,7 +58,7 @@ export function usePlugins() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'An unknown error occurred');
     }
-  }, [pluginsEnabled, runningPlugins, fetchPluginState]);
+  }, [apiBase, pluginsEnabled, runningPlugins, fetchPluginState]);
 
   // Fetch the initial state when the hook is first used
   useEffect(() => {

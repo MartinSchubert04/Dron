@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-
-const OVERLAY_WS_URL = 'ws://localhost:8000/ws/overlays';
+import { useSettings } from '../context/SettingsContext';
 
 export interface OverlayObject {
   type: 'rect';
@@ -9,20 +8,19 @@ export interface OverlayObject {
 }
 
 export function useOverlays() {
+  const { wsBase } = useSettings();
   const [overlays, setOverlays] = useState<OverlayObject[]>([]);
   const ws = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     const connect = () => {
-      ws.current = new WebSocket(OVERLAY_WS_URL);
-      
+      ws.current = new WebSocket(`${wsBase}/ws/overlays`);
+
       ws.current.onopen = () => console.log('%c[Overlays] WebSocket Connected', 'color: green');
       ws.current.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (Array.isArray(data)) {
-            setOverlays(data);
-          }
+          if (Array.isArray(data)) setOverlays(data);
         } catch (e) {
           console.error('[Overlays] Failed to parse data:', e);
         }
@@ -30,7 +28,7 @@ export function useOverlays() {
 
       ws.current.onclose = () => {
         console.log('%c[Overlays] WebSocket Disconnected. Reconnecting...', 'color: orange');
-        setTimeout(connect, 3000); 
+        setTimeout(connect, 3000);
       };
 
       ws.current.onerror = (err) => {
@@ -43,11 +41,11 @@ export function useOverlays() {
 
     return () => {
       if (ws.current) {
-        ws.current.onclose = null; 
+        ws.current.onclose = null; // prevent the reconnect timer from firing
         ws.current.close();
       }
     };
-  }, []);
+  }, [wsBase]); // reconnect when host changes
 
   return overlays;
 }

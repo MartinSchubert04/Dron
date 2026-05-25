@@ -3,6 +3,28 @@
 /* tech-y heading font */
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&display=swap');
 
+/* ── Semantic color tokens (Tailwind v4 @theme) ─────────────────────────────
+   Use as: bg-surface, text-accent, border-frame, text-muted, etc.
+   Opacity modifiers work normally: bg-accent/10, border-frame/60, etc.    */
+@theme {
+  --color-surface:  #16162a;
+  --color-frame:    #252545;
+  --color-accent:   #4fc3f7;
+  --color-danger:   #ef5350;
+  --color-success:  #66bb6a;
+  --color-warn:     #ffa726;
+  --color-muted:    #5a5a7a;
+}
+
+/* ── Touch joystick zones ───────────────────────────────────────────────── */
+.joy-zone {
+  touch-action: none;   /* prevents browser scroll hijacking nipplejs */
+}
+
+.motor-bar {
+  transition: width 80ms linear;
+}
+
 /* global dark theme */
 html, body {
   margin: 0;

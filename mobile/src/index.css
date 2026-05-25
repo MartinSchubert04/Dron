@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface:  #16162a;
+  --color-frame:    #252545;
+  --color-accent:   #4fc3f7;
+  --color-danger:   #ef5350;
+  --color-success:  #66bb6a;
+  --color-warn:     #ffa726;
+  --color-muted:    #5a5a7a;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  font-family: ui-monospace, 'Courier New', monospace;
+  /* prevent bounce scroll on iOS */
+  overscroll-behavior: none;
+}
+
+/* nipplejs touch zones — block browser scroll/zoom inside them */
+.joy-zone {
+  touch-action: none;
+}
+
+/* nipplejs overrides: hide the default white outer ring, style the knob */
+.joy-zone .nipple .back {
+  display: none !important;
+}
+.joy-zone .nipple .front {
+  background: radial-gradient(circle at 38% 35%, #7dd9fc, #4fc3f7) !important;
+  box-shadow: 0 0 12px rgba(79, 195, 247, 0.75), 0 0 4px rgba(79, 195, 247, 0.5) !important;
+  border-radius: 50% !important;
+}

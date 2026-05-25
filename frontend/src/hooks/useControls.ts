@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSettings } from "../context/SettingsContext";
 
 /* ─────────────────────────────────────────────────────────── */
 /*  Shared types                                               */
-export type ControlMode = "inc" | "abs" | "mouse";
+export type ControlMode = "inc" | "abs" | "mouse" | "touch";
+export type ConnState = "connecting" | "connected" | "disconnected";
 
 export interface Axes {
   throttle: number;  // -1 … +1  (down / up)
@@ -25,7 +27,12 @@ export type CameraTiltDirection = -1 | 0 | 1;
 /* ─────────────────────────────────────────────────────────── */
 
 export function useControls() {
-  const API_BASE_URL = "http://localhost:8000";
+  const { apiBase, wsBase } = useSettings();
+
+  // Stable ref so async closures (maybeStopPluginOnUserInput) always see the
+  // latest host even when event-handler closures have staled.
+  const apiBaseRef = useRef(apiBase);
+  useEffect(() => { apiBaseRef.current = apiBase; }, [apiBase]);
 
   /* ------- state refs (mutable) ------- */
   const axesRef = useRef<Axes>({ throttle: 0, yaw: 0, pitch: 0, roll: 0 });
@@ -39,14 +46,22 @@ export function useControls() {
   const pluginRunningRef = useRef<boolean>(false);
   const stoppedPluginOnceRef = useRef<boolean>(false);    // rate-limit stop calls per burst
 
-  // Open WS once on mount, close on unmount
+  // Open WS on mount (and reconnect if host changes), close on unmount/change.
   useEffect(() => {
-    ws.current = new WebSocket("ws://localhost:8000/ws");
+    setConnState("connecting");
+    const socket = new WebSocket(`${wsBase}/ws`);
+    ws.current = socket;
+    socket.onopen  = () => setConnState("connected");
+    socket.onclose = () => setConnState("disconnected");
+    socket.onerror = () => setConnState("disconnected");
     return () => {
-      ws.current?.close();
+      socket.onopen  = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.close();
       ws.current = null;
     };
-  }, []);
+  }, [wsBase]);
 
   // Listen for plugin start/stop events (dispatched from usePlugins and auto-stop)
   useEffect(() => {
@@ -63,6 +78,7 @@ export function useControls() {
   /* ------- state that triggers re-renders ------- */
   const [axes,  setAxes]  = useState<Axes>(axesRef.current);
   const [mode,  setModeSt] = useState<ControlMode>("inc");
+  const [connState, setConnState] = useState<ConnState>("connecting");
   const [gamepadConnected, setGamepadConnected] = useState<boolean>(false);
   const [droneType, setDroneType] = useState<string>("unknown");
   const [commandCapabilities, setCommandCapabilities] = useState<CommandCapabilities>({
@@ -90,7 +106,7 @@ export function useControls() {
 
     const fetchCapabilities = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/capabilities`);
+        const response = await fetch(`${apiBase}/capabilities`);
         if (!response.ok) return;
         const data = await response.json();
         if (cancelled) return;
@@ -113,7 +129,7 @@ export function useControls() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [apiBase]);
 
   /* --------------- gamepad detection --------------- */
   useEffect(() => {
@@ -355,15 +371,14 @@ export function useControls() {
 
   const maybeStopPluginOnUserInput = async () => {
     if (!pluginRunningRef.current || stoppedPluginOnceRef.current) return;
+    const base = apiBaseRef.current;
     try {
-      // Stop all running plugins for simplicity
-      const res = await fetch(`${API_BASE_URL}/plugins`);
-      // If plugins are disabled on backend, nothing to stop.
+      const res = await fetch(`${base}/plugins`);
       if (res.status === 404) return;
       if (!res.ok) return;
       const data = await res.json();
       const running: string[] = data?.running ?? [];
-      await Promise.all(running.map((name) => fetch(`${API_BASE_URL}/plugins/${name}/stop`, { method: 'POST' })));
+      await Promise.all(running.map((name) => fetch(`${base}/plugins/${name}/stop`, { method: 'POST' })));
       stoppedPluginOnceRef.current = true;
       pluginRunningRef.current = false;
       // notify UI to flip OFF without polling
@@ -383,6 +398,21 @@ export function useControls() {
     setSpeedTierSt(tier);
     setSpeedIndex(tier);
   }, [setSpeedIndex]);
+  /* ----------- touch / nipplejs callbacks ------------------- */
+  const setTouchLeft = useCallback((throttle: number, yaw: number) => {
+    axesRef.current.throttle = throttle;
+    axesRef.current.yaw      = yaw;
+    setAxes({ ...axesRef.current });
+    maybeStopPluginOnUserInput();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const setTouchRight = useCallback((pitch: number, roll: number) => {
+    axesRef.current.pitch = pitch;
+    axesRef.current.roll  = roll;
+    setAxes({ ...axesRef.current });
+    maybeStopPluginOnUserInput();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const setCameraTiltDirection = (direction: CameraTiltDirection) => {
     if (!commandCapabilities.camera_tilt) return;
     cameraTiltDirectionRef.current = direction;
@@ -397,6 +427,7 @@ export function useControls() {
     axes,
     mode,
     setMode,
+    connState,
     gamepadConnected,
     droneType,
     commandCapabilities,
@@ -408,5 +439,7 @@ export function useControls() {
     setSpeedTier,
     cameraTiltDirection,
     setCameraTiltDirection,
+    setTouchLeft,
+    setTouchRight,
   };
 }
