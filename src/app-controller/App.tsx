@@ -1,49 +1,56 @@
-import React, {
-  useState,
-  useRef,
-  useCallback,
-  useEffect,
-} from 'react';
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   Animated,
-  PanResponder,
-  SafeAreaView,
+  Dimensions,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { DEBUG, DEBUG_IP } from './config';
+} from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import * as NavigationBar from "expo-navigation-bar";
+import { DEBUG, DEBUG_IP } from "./config";
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 
 const C = {
-  bg:     '#0d0d0d',
-  panel:  '#1a1a1a',
-  border: '#2a2a2a',
-  text:   '#ffffff',
-  muted:  '#666',
-  armed:  '#e74c3c',
-  safe:   '#2ecc71',
-  accent: '#3498db',
+  bg: "#0d0d0d",
+  panel: "#1a1a1a",
+  border: "#2a2a2a",
+  text: "#ffffff",
+  muted: "#666",
+  armed: "#e74c3c",
+  safe: "#2ecc71",
+  accent: "#3498db",
 };
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
 function useToast() {
-  const opacity  = useRef(new Animated.Value(0)).current;
-  const [msg, setMsg] = useState('');
+  const opacity = useRef(new Animated.Value(0)).current;
+  const [msg, setMsg] = useState("");
 
-  const show = useCallback((text: string) => {
-    setMsg(text);
-    Animated.sequence([
-      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-      Animated.delay(2000),
-      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
-    ]).start();
-  }, [opacity]);
+  const show = useCallback(
+    (text: string) => {
+      setMsg(text);
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.delay(2000),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    },
+    [opacity],
+  );
 
   const element = (
     <Animated.View style={[styles.toast, { opacity }]} pointerEvents="none">
@@ -54,52 +61,32 @@ function useToast() {
   return { show, element };
 }
 
-// ── Joystick ──────────────────────────────────────────────────────────────────
+// ── Joystick (visual only — touch se maneja en el padre) ──────────────────────
+
+const JOY_BASE = 150;
+const JOY_KNOB = 52;
+const JOY_MAX = (JOY_BASE - JOY_KNOB) / 2;
 
 interface JoystickProps {
   label: string;
-  onMove: (x: number, y: number) => void;
+  pos: Animated.ValueXY;
 }
 
-function Joystick({ label, onMove }: JoystickProps) {
-  const BASE = 150;
-  const KNOB = 52;
-  const MAX  = (BASE - KNOB) / 2;
-
-  const pos = useRef(new Animated.ValueXY()).current;
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder:  () => true,
-      onPanResponderMove: (_, g) => {
-        const x = Math.max(-MAX, Math.min(MAX, g.dx));
-        const y = Math.max(-MAX, Math.min(MAX, g.dy));
-        pos.setValue({ x, y });
-        onMove(x / MAX, -(y / MAX));
-      },
-      onPanResponderRelease: () => {
-        Animated.spring(pos, {
-          toValue: { x: 0, y: 0 },
-          useNativeDriver: true,
-          friction: 5,
-          tension: 80,
-        }).start();
-        onMove(0, 0);
-      },
-    })
-  ).current;
-
+function Joystick({ label, pos }: JoystickProps) {
   return (
     <View style={styles.joystickWrap}>
-      <View style={[styles.joystickBase, { width: BASE, height: BASE, borderRadius: BASE / 2 }]}>
-        <View style={[styles.crossH, { width: BASE - 20 }]} />
-        <View style={[styles.crossV, { height: BASE - 20 }]} />
+      <View
+        style={[
+          styles.joystickBase,
+          { width: JOY_BASE, height: JOY_BASE, borderRadius: JOY_BASE / 2 },
+        ]}
+      >
+        <View style={[styles.crossH, { width: JOY_BASE - 20 }]} />
+        <View style={[styles.crossV, { height: JOY_BASE - 20 }]} />
         <Animated.View
-          {...pan.panHandlers}
           style={[
             styles.joystickKnob,
-            { width: KNOB, height: KNOB, borderRadius: KNOB / 2 },
+            { width: JOY_KNOB, height: JOY_KNOB, borderRadius: JOY_KNOB / 2 },
             { transform: [{ translateX: pos.x }, { translateY: pos.y }] },
           ]}
         />
@@ -112,13 +99,21 @@ function Joystick({ label, onMove }: JoystickProps) {
 // ── Motor bar ─────────────────────────────────────────────────────────────────
 
 function MotorBar({ label, value }: { label: string; value: number }) {
-  const pct   = value / 255;
-  const color = pct > 0.7 ? C.armed : pct > 0.3 ? '#f39c12' : C.accent;
+  const pct = value / 255;
+  const color =
+    pct > 0.7 ? C.armed
+    : pct > 0.3 ? "#f39c12"
+    : C.accent;
   return (
     <View style={styles.motorBox}>
       <Text style={styles.motorLabel}>{label}</Text>
       <View style={styles.motorTrack}>
-        <View style={[styles.motorFill, { height: `${pct * 100}%`, backgroundColor: color }]} />
+        <View
+          style={[
+            styles.motorFill,
+            { height: `${pct * 100}%`, backgroundColor: color },
+          ]}
+        />
       </View>
       <Text style={styles.motorVal}>{value}</Text>
     </View>
@@ -127,21 +122,99 @@ function MotorBar({ label, value }: { label: string; value: number }) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 
-type ConnState = 'disconnected' | 'connecting' | 'connected';
+type ConnState = "disconnected" | "connecting" | "connected";
 
 export default function App() {
-  const [ip,        setIp]       = useState(DEBUG ? DEBUG_IP : 'drone.local');
-  const [connState, setConnState]= useState<ConnState>('disconnected');
-  const [armed,     setArmed]    = useState(false);
-  const [motors,    setMotors]   = useState([0, 0, 0, 0]);
+  const [ip, setIp] = useState(DEBUG ? DEBUG_IP : "drone.local");
+  const [connState, setConnState] = useState<ConnState>("disconnected");
+  const [armed, setArmed] = useState(false);
+  const [motors, setMotors] = useState([0, 0, 0, 0]);
 
-  const wsRef    = useRef<WebSocket | null>(null);
-  const leftJoy  = useRef({ x: 0, y: 0 });
+  const wsRef = useRef<WebSocket | null>(null);
+  const leftJoy = useRef({ x: 0, y: 0 });
   const rightJoy = useRef({ x: 0, y: 0 });
   const armedRef = useRef(false);
   const cmdTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Joystick animated positions
+  const leftPos = useRef(new Animated.ValueXY()).current;
+  const rightPos = useRef(new Animated.ValueXY()).current;
+
+  // Touch tracking: un handler en el View padre rutea cada toque por posición X.
+  // Esto evita el problema de Android donde todos los pointers van al primer View
+  // que recibió el toque.
+  type Side = "left" | "right";
+  const touchSide = useRef<Record<number, Side>>({});
+  const touchOrigin = useRef<Record<number, { x: number; y: number }>>({});
+
   const toast = useToast();
+
+  // ── Touch handlers (controles) ──────────────────────────────────────────────
+
+  const handleTouchStart = useCallback((e: any) => {
+    const mid = Dimensions.get("window").width / 2;
+    const ct = e.nativeEvent.changedTouches;
+    for (let i = 0; i < ct.length; i++) {
+      const t = ct[i];
+      const side: Side = t.pageX < mid ? "left" : "right";
+      if (Object.values(touchSide.current).includes(side)) continue;
+      touchSide.current[t.identifier] = side;
+      touchOrigin.current[t.identifier] = { x: t.pageX, y: t.pageY };
+    }
+  }, []);
+
+  const handleTouchMove = useCallback(
+    (e: any) => {
+      const ct = e.nativeEvent.changedTouches;
+      for (let i = 0; i < ct.length; i++) {
+        const t = ct[i];
+        const side = touchSide.current[t.identifier];
+        const origin = touchOrigin.current[t.identifier];
+        if (!side || !origin) continue;
+
+        const rawDx = t.pageX - origin.x;
+        const rawDy = t.pageY - origin.y;
+        const dist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+        const scale = dist > JOY_MAX ? JOY_MAX / dist : 1;
+        const dx = rawDx * scale;
+        const dy = rawDy * scale;
+
+        if (side === "left") {
+          leftPos.setValue({ x: dx, y: dy });
+          leftJoy.current = { x: dx / JOY_MAX, y: -(dy / JOY_MAX) };
+        } else {
+          rightPos.setValue({ x: dx, y: dy });
+          rightJoy.current = { x: dx / JOY_MAX, y: -(dy / JOY_MAX) };
+        }
+      }
+    },
+    [leftPos, rightPos],
+  );
+
+  const handleTouchEnd = useCallback(
+    (e: any) => {
+      const ct = e.nativeEvent.changedTouches;
+      for (let i = 0; i < ct.length; i++) {
+        const t = ct[i];
+        const side = touchSide.current[t.identifier];
+        if (!side) continue;
+
+        delete touchSide.current[t.identifier];
+        delete touchOrigin.current[t.identifier];
+
+        const pos = side === "left" ? leftPos : rightPos;
+        Animated.spring(pos, {
+          toValue: { x: 0, y: 0 },
+          useNativeDriver: true,
+          friction: 5,
+          tension: 80,
+        }).start();
+        if (side === "left") leftJoy.current = { x: 0, y: 0 };
+        else rightJoy.current = { x: 0, y: 0 };
+      }
+    },
+    [leftPos, rightPos],
+  );
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -151,7 +224,10 @@ export default function App() {
   }, []);
 
   const stopLoop = useCallback(() => {
-    if (cmdTimer.current) { clearInterval(cmdTimer.current); cmdTimer.current = null; }
+    if (cmdTimer.current) {
+      clearInterval(cmdTimer.current);
+      cmdTimer.current = null;
+    }
   }, []);
 
   const startLoop = useCallback(() => {
@@ -159,9 +235,9 @@ export default function App() {
     cmdTimer.current = setInterval(() => {
       if (!armedRef.current) return;
       send({
-        cmd: 'move',
-        t: Math.round(Math.max(0, leftJoy.current.y)  * 255),
-        y: Math.round(leftJoy.current.x  * 127),
+        cmd: "move",
+        t: Math.round(Math.max(0, leftJoy.current.y) * 255),
+        y: Math.round(leftJoy.current.x * 127),
         p: Math.round(rightJoy.current.y * 127),
         r: Math.round(rightJoy.current.x * 127),
       });
@@ -173,36 +249,38 @@ export default function App() {
   const connect = useCallback(() => {
     const addr = ip.trim();
     if (!addr) return;
-    setConnState('connecting');
+    setConnState("connecting");
 
     const socket = new WebSocket(`ws://${addr}:81`);
     wsRef.current = socket;
 
     socket.onopen = () => {
-      setConnState('connected');
+      setConnState("connected");
       startLoop();
     };
     socket.onclose = () => {
-      setConnState('disconnected');
+      setConnState("disconnected");
       setArmed(false);
       armedRef.current = false;
       stopLoop();
       toast.show(`Desconectado de ${addr}`);
     };
     socket.onerror = () => {
-      setConnState('disconnected');
+      setConnState("disconnected");
       toast.show(`No se pudo conectar a ${addr}`);
     };
     socket.onmessage = (e) => {
       try {
         const d = JSON.parse(e.data as string);
         if (Array.isArray(d.motors)) setMotors(d.motors);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     };
   }, [ip, startLoop, stopLoop, toast]);
 
   const disconnect = useCallback(() => {
-    send({ cmd: 'disarm' });
+    send({ cmd: "disarm" });
     wsRef.current?.close();
   }, [send]);
 
@@ -210,98 +288,151 @@ export default function App() {
     if (!armedRef.current) {
       armedRef.current = true;
       setArmed(true);
-      send({ cmd: 'arm' });
+      send({ cmd: "arm" });
     } else {
       armedRef.current = false;
       setArmed(false);
-      send({ cmd: 'disarm' });
+      send({ cmd: "disarm" });
     }
   }, [send]);
 
-  useEffect(() => () => { stopLoop(); wsRef.current?.close(); }, [stopLoop]);
-  useEffect(() => { if (DEBUG) connect(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    NavigationBar.setVisibilityAsync("hidden");
+  }, []);
+
+  useEffect(
+    () => () => {
+      stopLoop();
+      wsRef.current?.close();
+    },
+    [stopLoop],
+  );
+  useEffect(() => {
+    if (DEBUG) connect();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
-  const connected   = connState === 'connected';
-  const connecting  = connState === 'connecting';
+  const connected = connState === "connected";
+  const connecting = connState === "connecting";
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.root}>
-      <StatusBar style="light" />
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.root}>
+        <StatusBar hidden />
 
-      {/* ── Top bar ── */}
-      <View style={styles.topBar}>
+        {/* ── Top bar ── */}
+        <View style={styles.topBar}>
+          {/* IP + connect */}
+          <View style={styles.connectionRow}>
+            <TextInput
+              style={[styles.ipInput, connected && styles.ipInputConnected]}
+              value={ip}
+              onChangeText={setIp}
+              placeholder="192.168.1.100"
+              placeholderTextColor={C.muted}
+              keyboardType="url"
+              autoCapitalize="none"
+              editable={!connected}
+              returnKeyType="done"
+              onSubmitEditing={!connected ? connect : undefined}
+            />
+            <TouchableOpacity
+              style={[
+                styles.connBtn,
+                connected ?
+                  styles.connBtnDisconn
+                : connecting && styles.connBtnConnecting,
+              ]}
+              onPress={connected ? disconnect : connect}
+              disabled={connecting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.connBtnText}>
+                {connected ?
+                  "Desconectar"
+                : connecting ?
+                  "Conectando…"
+                : "Conectar"}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-        {/* IP + connect */}
-        <View style={styles.connectionRow}>
-          <TextInput
-            style={[styles.ipInput, connected && styles.ipInputConnected]}
-            value={ip}
-            onChangeText={setIp}
-            placeholder="192.168.1.100"
-            placeholderTextColor={C.muted}
-            keyboardType="numeric"
-            autoCapitalize="none"
-            editable={!connected}
-            returnKeyType="done"
-            onSubmitEditing={!connected ? connect : undefined}
-          />
-          <TouchableOpacity
-            style={[styles.connBtn, connected ? styles.connBtnDisconn : connecting && styles.connBtnConnecting]}
-            onPress={connected ? disconnect : connect}
-            disabled={connecting}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.connBtnText}>
-              {connected ? 'Desconectar' : connecting ? 'Conectando…' : 'Conectar'}
-            </Text>
-          </TouchableOpacity>
+          {/* Status badges */}
+          <View style={styles.badges}>
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: connected ? "#1a4a1a" : "#2a1a1a" },
+              ]}
+            >
+              <View
+                style={[
+                  styles.dot,
+                  { backgroundColor: connected ? C.safe : "#555" },
+                ]}
+              />
+              <Text style={styles.badgeText}>
+                {connected ? "Online" : "Offline"}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.badge,
+                { backgroundColor: armed ? "#3a1010" : "#1e1e1e" },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.badgeText,
+                  { color: armed ? C.armed : C.muted, fontWeight: "bold" },
+                ]}
+              >
+                {armed ? "ARMADO" : "DESARMADO"}
+              </Text>
+            </View>
+          </View>
         </View>
 
-        {/* Status badges */}
-        <View style={styles.badges}>
-          <View style={[styles.badge, { backgroundColor: connected ? '#1a4a1a' : '#2a1a1a' }]}>
-            <View style={[styles.dot, { backgroundColor: connected ? C.safe : '#555' }]} />
-            <Text style={styles.badgeText}>{connected ? 'Online' : 'Offline'}</Text>
-          </View>
-          <View style={[styles.badge, { backgroundColor: armed ? '#3a1010' : '#1e1e1e' }]}>
-            <Text style={[styles.badgeText, { color: armed ? C.armed : C.muted, fontWeight: 'bold' }]}>
-              {armed ? 'ARMADO' : 'DESARMADO'}
-            </Text>
-          </View>
+        {/* ── Motor bars ── */}
+        <View style={styles.motorRow}>
+          <MotorBar label="FL" value={motors[0]} />
+          <MotorBar label="FR" value={motors[1]} />
+          <MotorBar label="BL" value={motors[2]} />
+          <MotorBar label="BR" value={motors[3]} />
         </View>
 
-      </View>
-
-      {/* ── Motor bars ── */}
-      <View style={styles.motorRow}>
-        <MotorBar label="FL" value={motors[0]} />
-        <MotorBar label="FR" value={motors[1]} />
-        <MotorBar label="BL" value={motors[2]} />
-        <MotorBar label="BR" value={motors[3]} />
-      </View>
-
-      {/* ── Controls ── */}
-      <View style={styles.controls}>
-        <Joystick label="Throttle / Yaw"  onMove={(x, y) => { leftJoy.current  = { x, y }; }} />
-
-        <TouchableOpacity
-          style={[styles.armBtn, armed && styles.armBtnArmed, !connected && styles.armBtnDisabled]}
-          onPress={connected ? toggleArm : undefined}
-          activeOpacity={connected ? 0.85 : 1}
+        {/* ── Controls ── */}
+        <View
+          style={styles.controls}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         >
-          <Text style={styles.armBtnText}>{armed ? 'DISARM' : 'ARM'}</Text>
-        </TouchableOpacity>
+          <Joystick label="Throttle / Yaw" pos={leftPos} />
 
-        <Joystick label="Pitch / Roll" onMove={(x, y) => { rightJoy.current = { x, y }; }} />
-      </View>
+          <TouchableOpacity
+            style={[
+              styles.armBtn,
+              armed && styles.armBtnArmed,
+              !connected && styles.armBtnDisabled,
+            ]}
+            onPress={connected ? toggleArm : undefined}
+            activeOpacity={connected ? 0.85 : 1}
+          >
+            <Text style={styles.armBtnText}>{armed ? "DISARM" : "ARM"}</Text>
+          </TouchableOpacity>
 
-      {/* ── Toast ── */}
-      {toast.element}
-    </SafeAreaView>
+          <Joystick label="Pitch / Roll" pos={rightPos} />
+        </View>
+
+        {/* ── Toast ── */}
+        {toast.element}
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
@@ -315,8 +446,8 @@ const styles = StyleSheet.create({
 
   // Top bar
   topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: C.panel,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
@@ -325,14 +456,14 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   connectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
     gap: 8,
   },
   ipInput: {
     flex: 1,
-    backgroundColor: '#111',
+    backgroundColor: "#111",
     color: C.text,
     borderRadius: 7,
     paddingHorizontal: 10,
@@ -343,7 +474,7 @@ const styles = StyleSheet.create({
   },
   ipInputConnected: {
     color: C.muted,
-    borderColor: '#1a3a1a',
+    borderColor: "#1a3a1a",
   },
   connBtn: {
     backgroundColor: C.accent,
@@ -352,23 +483,23 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   connBtnDisconn: {
-    backgroundColor: '#5a1a1a',
+    backgroundColor: "#5a1a1a",
   },
   connBtnConnecting: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: "#2a2a2a",
   },
   connBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     fontSize: 13,
   },
   badges: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     borderRadius: 5,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -386,32 +517,32 @@ const styles = StyleSheet.create({
 
   // Motors
   motorRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
     gap: 16,
     paddingVertical: 8,
   },
   motorBox: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 3,
   },
   motorLabel: {
     color: C.muted,
     fontSize: 10,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   motorTrack: {
     width: 16,
     height: 48,
-    backgroundColor: '#1e1e1e',
+    backgroundColor: "#1e1e1e",
     borderRadius: 4,
-    overflow: 'hidden',
-    justifyContent: 'flex-end',
+    overflow: "hidden",
+    justifyContent: "flex-end",
     borderWidth: 1,
     borderColor: C.border,
   },
   motorFill: {
-    width: '100%',
+    width: "100%",
     borderRadius: 3,
   },
   motorVal: {
@@ -422,16 +553,16 @@ const styles = StyleSheet.create({
   // Controls
   controls: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
     paddingHorizontal: 20,
     paddingBottom: 10,
   },
 
   // Joystick
   joystickWrap: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 6,
   },
   joystickLabel: {
@@ -439,27 +570,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   joystickBase: {
-    backgroundColor: '#111',
+    backgroundColor: "#111",
     borderWidth: 2,
     borderColor: C.border,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   crossH: {
-    position: 'absolute',
+    position: "absolute",
     height: 1,
-    backgroundColor: '#252525',
+    backgroundColor: "#252525",
   },
   crossV: {
-    position: 'absolute',
+    position: "absolute",
     width: 1,
-    backgroundColor: '#252525',
+    backgroundColor: "#252525",
   },
   joystickKnob: {
-    position: 'absolute',
+    position: "absolute",
     backgroundColor: C.accent,
     borderWidth: 2,
-    borderColor: '#5dade2',
+    borderColor: "#5dade2",
     shadowColor: C.accent,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.6,
@@ -473,10 +604,10 @@ const styles = StyleSheet.create({
     height: 86,
     borderRadius: 43,
     backgroundColor: C.safe,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 3,
-    borderColor: '#27ae60',
+    borderColor: "#27ae60",
     shadowColor: C.safe,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.5,
@@ -485,28 +616,28 @@ const styles = StyleSheet.create({
   },
   armBtnArmed: {
     backgroundColor: C.armed,
-    borderColor: '#c0392b',
+    borderColor: "#c0392b",
     shadowColor: C.armed,
   },
   armBtnDisabled: {
-    backgroundColor: '#2a2a2a',
-    borderColor: '#333',
+    backgroundColor: "#2a2a2a",
+    borderColor: "#333",
     shadowOpacity: 0,
     elevation: 0,
   },
   armBtnText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    color: "#fff",
+    fontWeight: "bold",
     fontSize: 14,
     letterSpacing: 1,
   },
 
   // Toast
   toast: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 24,
-    alignSelf: 'center',
-    backgroundColor: '#222',
+    alignSelf: "center",
+    backgroundColor: "#222",
     borderRadius: 8,
     paddingHorizontal: 18,
     paddingVertical: 10,

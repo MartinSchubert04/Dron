@@ -4,21 +4,22 @@
   "main": "expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios"
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
-    "@types/react": "~19.1.10",
     "expo": "~54.0.0",
+    "expo-navigation-bar": "~5.0.10",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-dom": "*",
     "react-native": "0.81.5",
+    "react-native-safe-area-context": "~5.6.0",
     "react-native-web": "*"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
-    "@types/react": "*",
+    "@types/react": "~19.1.10",
     "typescript": "^5.3.0"
   },
   "private": true
