@@ -55,7 +55,7 @@ export function useVoiceCommands(actions: VoiceActions) {
 
   const actionsRef = useRef(actions);
   const listeningRef = useRef(false);
-  const recRef = useRef<SpeechRecognition | null>(null);
+  const recRef = useRef<any>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -78,13 +78,13 @@ export function useVoiceCommands(actions: VoiceActions) {
       return;
     }
 
-    const rec: SpeechRecognition = new SR();
+    const rec = new SR();
     rec.continuous = true;
     rec.interimResults = false;
     rec.lang = "en-US";
     recRef.current = rec;
 
-    rec.onresult = (e: SpeechRecognitionEvent) => {
+    rec.onresult = (e: any) => {
       for (let i = e.resultIndex; i < e.results.length; i++) {
         if (!e.results[i].isFinal) continue;
         const t = e.results[i][0].transcript.trim();
@@ -116,7 +116,7 @@ export function useVoiceCommands(actions: VoiceActions) {
       }
     };
 
-    rec.onerror = (e: SpeechRecognitionErrorEvent) => {
+    rec.onerror = (e: any) => {
       console.warn("[voice] error:", e.error);
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         setSupported(false);
