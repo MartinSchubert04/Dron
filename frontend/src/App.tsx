@@ -7,6 +7,7 @@ import ControlsOverlay from './components/ControlsOverlay';
 import { PluginControls } from './components/PluginControls';
 import { DrawingOverlay } from './components/DrawingOverlay';
 import { SettingsPanel } from './components/SettingsPanel';
+import { VoiceControl } from './components/VoiceControl';
 import { NippleJoysticks } from './components/NippleJoysticks';
 
 function GearIcon() {
@@ -78,15 +79,22 @@ function App() {
       <ControlSchemeToggle mode={mode} setMode={setMode} gamepadConnected={gamepadConnected} />
       <PluginControls />
 
-      {/* Settings gear — top-right corner */}
-      <button
-        onClick={() => setSettingsOpen(true)}
-        className="absolute top-4 right-4 z-30 p-2 text-white/40 hover:text-white
-                   bg-black/30 hover:bg-black/60 rounded-lg transition-colors"
-        title="Settings"
-      >
-        <GearIcon />
-      </button>
+      {/* Top-right button cluster */}
+      <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+        <VoiceControl
+          onTakeoff={takeOff}
+          onLand={land}
+          onSpeed={setSpeedTier}
+        />
+        <button
+          onClick={() => setSettingsOpen(true)}
+          className="p-2 text-white/40 hover:text-white bg-black/30 hover:bg-black/60
+                     rounded-lg transition-colors"
+          title="Settings"
+        >
+          <GearIcon />
+        </button>
+      </div>
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>
