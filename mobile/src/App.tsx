@@ -174,16 +174,12 @@ export default function App() {
           {voiceSupported && (
             <button
               onPointerDown={toggleVoice}
-              className={`flex items-center gap-1 px-2 py-1.5 rounded-full border
-                          text-[0.55rem] font-mono tracking-widest uppercase transition-all
-                          ${
-                            listening ?
-                              "bg-danger/20 border-danger text-danger animate-pulse"
-                            : "border-white/20 text-white/50"
-                          }`}
+              className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors
+                          ${listening
+                            ? 'bg-danger/20 border border-danger text-danger animate-pulse'
+                            : 'text-white/50 hover:text-white hover:bg-white/10'}`}
             >
               <MicIcon />
-              {listening ? "on" : ""}
             </button>
           )}
           <button
