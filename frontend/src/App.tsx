@@ -5,6 +5,7 @@ import { ControlSchemeToggle } from './components/ControlSchemeToggle';
 import { VideoFeed } from './components/VideoFeed';
 import ControlsOverlay from './components/ControlsOverlay';
 import { PluginControls } from './components/PluginControls';
+import { FollowThrottleButton } from './components/FollowThrottleButton';
 import { DrawingOverlay } from './components/DrawingOverlay';
 import { SettingsPanel } from './components/SettingsPanel';
 import { VoiceControl } from './components/VoiceControl';
@@ -43,6 +44,7 @@ function App() {
     takeOff,
     land,
     emergencyStop,
+    calibrate,
     speedTier,
     setSpeedTier,
     cameraTiltDirection,
@@ -67,6 +69,7 @@ function App() {
         onTakeoff={takeOff}
         onLand={land}
         onEstop={emergencyStop}
+        onCalibrate={calibrate}
         onSpeedChange={setSpeedTier}
         onCameraTiltChange={setCameraTiltDirection}
       />
@@ -81,6 +84,7 @@ function App() {
 
       {/* Top-right button cluster */}
       <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+        <FollowThrottleButton />
         <VoiceControl
           onTakeoff={takeOff}
           onLand={land}

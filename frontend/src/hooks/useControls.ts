@@ -20,6 +20,7 @@ export interface CommandCapabilities {
   camera_tilt: boolean;
   camera_switch: boolean;
   speed_control: boolean;
+  calibrate: boolean;
 }
 
 export type SpeedTier = 0 | 1 | 2;
@@ -54,10 +55,19 @@ export function useControls() {
     socket.onopen  = () => setConnState("connected");
     socket.onclose = () => setConnState("disconnected");
     socket.onerror = () => setConnState("disconnected");
+    socket.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg?.type === "calibrate_ack") {
+          window.dispatchEvent(new CustomEvent("calibrate:ack"));
+        }
+      } catch { /* ignore non-JSON */ }
+    };
     return () => {
-      socket.onopen  = null;
-      socket.onclose = null;
-      socket.onerror = null;
+      socket.onopen    = null;
+      socket.onclose   = null;
+      socket.onerror   = null;
+      socket.onmessage = null;
       socket.close();
       ws.current = null;
     };
@@ -88,6 +98,7 @@ export function useControls() {
     camera_tilt: false,
     camera_switch: false,
     speed_control: false,
+    calibrate: false,
   });
   const [speedTier, setSpeedTierSt] = useState<SpeedTier>(2);
   const [cameraTiltDirection, setCameraTiltDirectionSt] = useState<CameraTiltDirection>(0);
@@ -119,6 +130,7 @@ export function useControls() {
           camera_tilt: Boolean(data?.commands?.camera_tilt),
           camera_switch: Boolean(data?.commands?.camera_switch),
           speed_control: Boolean(data?.commands?.speed_control),
+          calibrate: Boolean(data?.commands?.calibrate),
         });
       } catch {
         // Keep optimistic defaults when the backend is temporarily unavailable.
@@ -388,9 +400,10 @@ export function useControls() {
     }
   };
 
-  const takeOff = () => sendCommand("takeoff");
-  const land    = () => sendCommand("land");
+  const takeOff    = () => sendCommand("takeoff");
+  const land       = () => sendCommand("land");
   const emergencyStop = () => sendCommand("estop");
+  const calibrate  = () => sendCommand("calibrate");
   const setSpeedIndex = useCallback((speedIndex: number) => {
     sendCommand("set_speed_index", { speed_index: speedIndex });
   }, []);
@@ -434,6 +447,7 @@ export function useControls() {
     takeOff,
     land,
     emergencyStop,
+    calibrate,
     setSpeedIndex,
     speedTier,
     setSpeedTier,

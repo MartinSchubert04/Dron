@@ -120,6 +120,7 @@ def _control_capabilities_for_drone(drone_type: str) -> dict[str, bool]:
             "camera_tilt": wifi_uav_capabilities.supports_camera_tilt,
             "camera_switch": wifi_uav_capabilities.supports_camera_switch,
             "speed_control": True,
+            "calibrate": False,
         }
 
     if drone_type in {"s2x", "wifi_cam"} or drone_type in COOINGDV_DRONE_TYPES:
@@ -130,6 +131,7 @@ def _control_capabilities_for_drone(drone_type: str) -> dict[str, bool]:
             "camera_tilt": False,
             "camera_switch": drone_type == "wifi_cam",
             "speed_control": drone_type == "s2x",
+            "calibrate": drone_type in COOINGDV_DRONE_TYPES,
         }
 
     if drone_type == "x69_lg":
@@ -140,6 +142,7 @@ def _control_capabilities_for_drone(drone_type: str) -> dict[str, bool]:
             "camera_tilt": True,
             "camera_switch": False,
             "speed_control": True,
+            "calibrate": False,
         }
 
     if drone_type == "debug":
@@ -150,6 +153,7 @@ def _control_capabilities_for_drone(drone_type: str) -> dict[str, bool]:
             "camera_tilt": False,
             "camera_switch": False,
             "speed_control": False,
+            "calibrate": False,
         }
 
     return {
@@ -159,6 +163,7 @@ def _control_capabilities_for_drone(drone_type: str) -> dict[str, bool]:
         "camera_tilt": False,
         "camera_switch": False,
         "speed_control": False,
+        "calibrate": False,
     }
 
 def _coerce_camera_tilt_state(data: dict[str, Any]) -> Optional[int]:
@@ -684,6 +689,13 @@ async def ws_endpoint(websocket: WebSocket) -> None:
             elif msg_type in ("set_camera_tilt", "camera_tilt"):
                 try:
                     _apply_camera_tilt_command(flight_controller.model, data)
+                except Exception:
+                    pass
+            elif msg_type == "calibrate":
+                try:
+                    flight_controller.model.calibrate_gyro()
+                    logger.info("[WebSocket] Gyro calibration flag set")
+                    await websocket.send_json({"type": "calibrate_ack"})
                 except Exception:
                     pass
     except WebSocketDisconnect:

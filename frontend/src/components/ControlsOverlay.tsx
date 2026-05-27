@@ -15,6 +15,7 @@ interface ControlsOverlayProps {
   onTakeoff: () => void;
   onLand: () => void;
   onEstop: () => void;
+  onCalibrate: () => void;
   onSpeedChange: (tier: SpeedTier) => void;
   onCameraTiltChange: (direction: CameraTiltDirection) => void;
 }
@@ -42,6 +43,7 @@ export default function ControlsOverlay({
   onTakeoff,
   onLand,
   onEstop,
+  onCalibrate,
   onSpeedChange,
   onCameraTiltChange,
 }: ControlsOverlayProps) {
@@ -84,6 +86,7 @@ export default function ControlsOverlay({
           onTakeoff={onTakeoff}
           onLand={onLand}
           onEstop={onEstop}
+          onCalibrate={onCalibrate}
         />
 
         {commandCapabilities.speed_control && (
