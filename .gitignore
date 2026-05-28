@@ -174,4 +174,6 @@ dumps_x69/
 dumps_*/
 **/offline_frames/
 CLAUDE.md
-mobile/android/
+src/app-controller/android
+src/app-controller/.expo
+.pio
