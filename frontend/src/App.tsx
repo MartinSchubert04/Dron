@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useControls } from './hooks/useControls';
+import { useTelemetry } from './hooks/useTelemetry';
 import { useSettings } from './context/SettingsContext';
+import { Navbar, type Tab } from './components/Navbar';
 import { ControlSchemeToggle } from './components/ControlSchemeToggle';
 import { VideoFeed } from './components/VideoFeed';
 import ControlsOverlay from './components/ControlsOverlay';
@@ -10,6 +12,8 @@ import { DrawingOverlay } from './components/DrawingOverlay';
 import { SettingsPanel } from './components/SettingsPanel';
 import { VoiceControl } from './components/VoiceControl';
 import { NippleJoysticks } from './components/NippleJoysticks';
+import { ThreeDPage } from './pages/ThreeDPage';
+import { ConfigPage } from './pages/ConfigPage';
 
 function GearIcon() {
   return (
@@ -31,74 +35,91 @@ function GearIcon() {
 
 function App() {
   const { apiBase } = useSettings();
+  const [activeTab, setActiveTab]   = useState<Tab>("control");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const {
-    axes,
-    mode,
-    setMode,
-    connState,
-    gamepadConnected,
-    droneType,
-    commandCapabilities,
-    takeOff,
-    land,
-    emergencyStop,
-    calibrate,
-    speedTier,
-    setSpeedTier,
-    cameraTiltDirection,
-    setCameraTiltDirection,
-    setTouchLeft,
-    setTouchRight,
+    axes, mode, setMode, connState, gamepadConnected,
+    droneType, commandCapabilities,
+    takeOff, land, emergencyStop, calibrate,
+    speedTier, setSpeedTier,
+    cameraTiltDirection, setCameraTiltDirection,
+    setTouchLeft, setTouchRight,
   } = useControls();
 
-  return (
-    <div className="relative w-screen h-screen bg-black">
-      <VideoFeed src={`${apiBase}/mjpeg`} />
-      <DrawingOverlay />
+  const { data: telemetry, esp32Url, setEsp32Url } = useTelemetry();
 
-      <ControlsOverlay
-        axes={axes}
-        mode={mode}
+  return (
+    <div className="w-screen h-screen flex flex-col overflow-hidden bg-[#0c0c14]">
+
+      {/* ── Always-visible navbar with tabs ── */}
+      <Navbar
+        activeTab={activeTab}
+        setTab={setActiveTab}
         connState={connState}
-        droneType={droneType}
-        commandCapabilities={commandCapabilities}
-        speedTier={speedTier}
-        cameraTiltDirection={cameraTiltDirection}
-        onTakeoff={takeOff}
-        onLand={land}
-        onEstop={emergencyStop}
-        onCalibrate={calibrate}
-        onSpeedChange={setSpeedTier}
-        onCameraTiltChange={setCameraTiltDirection}
+        imuConnected={telemetry.connected}
+        roll={telemetry.roll}
+        pitch={telemetry.pitch}
       />
 
-      {/* Touch joysticks — rendered over video when in touch mode */}
-      {mode === "touch" && (
-        <NippleJoysticks onLeftMove={setTouchLeft} onRightMove={setTouchRight} />
+      {/* ── CONTROL tab ── */}
+      {activeTab === "control" && (
+        <div className="relative flex-1 overflow-hidden bg-black">
+          <VideoFeed src={`${apiBase}/mjpeg`} />
+          <DrawingOverlay />
+
+          <ControlsOverlay
+            axes={axes}
+            mode={mode}
+            connState={connState}
+            droneType={droneType}
+            commandCapabilities={commandCapabilities}
+            speedTier={speedTier}
+            cameraTiltDirection={cameraTiltDirection}
+            onTakeoff={takeOff}
+            onLand={land}
+            onEstop={emergencyStop}
+            onCalibrate={calibrate}
+            onSpeedChange={setSpeedTier}
+            onCameraTiltChange={setCameraTiltDirection}
+          />
+
+          {mode === "touch" && (
+            <NippleJoysticks onLeftMove={setTouchLeft} onRightMove={setTouchRight} />
+          )}
+
+          <ControlSchemeToggle mode={mode} setMode={setMode} gamepadConnected={gamepadConnected} />
+          <PluginControls />
+
+          {/* Top-right button cluster */}
+          <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+            <FollowThrottleButton />
+            <VoiceControl onTakeoff={takeOff} onLand={land} onSpeed={setSpeedTier} />
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="p-2 text-white/40 hover:text-white bg-black/30 hover:bg-black/60
+                         rounded-lg transition-colors"
+              title="Settings"
+            >
+              <GearIcon />
+            </button>
+          </div>
+        </div>
       )}
 
-      <ControlSchemeToggle mode={mode} setMode={setMode} gamepadConnected={gamepadConnected} />
-      <PluginControls />
+      {/* ── 3D tab ── */}
+      {activeTab === "3d" && (
+        <div className="flex-1 overflow-hidden" style={{ background: '#0a0a12' }}>
+          <ThreeDPage telemetry={telemetry} />
+        </div>
+      )}
 
-      {/* Top-right button cluster */}
-      <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
-        <FollowThrottleButton />
-        <VoiceControl
-          onTakeoff={takeOff}
-          onLand={land}
-          onSpeed={setSpeedTier}
-        />
-        <button
-          onClick={() => setSettingsOpen(true)}
-          className="p-2 text-white/40 hover:text-white bg-black/30 hover:bg-black/60
-                     rounded-lg transition-colors"
-          title="Settings"
-        >
-          <GearIcon />
-        </button>
-      </div>
+      {/* ── CONFIG tab ── */}
+      {activeTab === "config" && (
+        <div className="flex-1 overflow-y-auto bg-surface">
+          <ConfigPage esp32Url={esp32Url} setEsp32Url={setEsp32Url} />
+        </div>
+      )}
 
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
     </div>

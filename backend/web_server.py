@@ -47,6 +47,8 @@ from utils.wifi_uav_variants import (
     resolve_wifi_uav_capabilities,
     resolve_wifi_uav_variant,
 )
+from services.esp32_telemetry import Esp32TelemetryService
+from services import config_store
 
 COOINGDV_DRONE_TYPES = {"cooingdv", "cooingdv_jieli"}
 
@@ -102,6 +104,16 @@ logger = logging.getLogger(__name__)
 # Managers for WebSocket connections
 overlay_manager = ConnectionManager()
 video_manager = ConnectionManager()
+
+
+def _apply_saved_trim(model) -> None:
+    """Load persisted trim values from config.json into the model."""
+    trim = config_store.get("trim") or {}
+    model.trim_roll     = int(trim.get("roll",     0))
+    model.trim_pitch    = int(trim.get("pitch",    0))
+    model.trim_yaw      = int(trim.get("yaw",      0))
+    model.trim_throttle = int(trim.get("throttle", 0))
+    logger.info("[trim] Loaded from config: %s", trim)
 
 
 def _control_capabilities_for_drone(drone_type: str) -> dict[str, bool]:
@@ -250,10 +262,12 @@ async def lifespan(app: FastAPI):
     # Startup
     global flight_controller, receiver, plugin_manager, active_drone_type, control_capabilities
 
+    config_store.init()
+
     drone_type = os.getenv("DRONE_TYPE", "s2x").lower()
     active_drone_type = drone_type
     control_capabilities = _control_capabilities_for_drone(drone_type)
-    
+
     logger.info("[main] Using drone type: %s", drone_type)
 
     if drone_type == "s2x":
@@ -324,6 +338,7 @@ async def lifespan(app: FastAPI):
         video_port = int(os.getenv("VIDEO_PORT", default_video_port))
 
         model = CooingdvRcModel()
+        _apply_saved_trim(model)
         if drone_type == "cooingdv_jieli":
             rc_proto = CooingdvJieliRcProtocolAdapter(drone_ip, ctrl_port)
             video_adapter_cls = CooingdvJieliVideoProtocolAdapter
@@ -490,7 +505,10 @@ async def lifespan(app: FastAPI):
         plugin_manager = None
         logger.info("[plugins] Plugins disabled (set PLUGINS_ENABLED=true to enable)")
 
-    # 4. start bridge thread (daemon) for video pump (always, for MJPEG)
+    # 4. start ESP32-C3 telemetry poller
+    esp32_telemetry.start()
+
+    # 5. start bridge thread (daemon) for video pump (always, for MJPEG)
     _pump_stop = threading.Event()
     main_loop = asyncio.get_running_loop()
     _pump_thread = threading.Thread(
@@ -504,6 +522,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    esp32_telemetry.stop()
     if overlay_broadcaster:
         overlay_broadcaster.stop()
     if plugin_manager:
@@ -541,6 +560,54 @@ active_drone_type = os.getenv("DRONE_TYPE", "s2x").lower()
 control_capabilities = _control_capabilities_for_drone(active_drone_type)
 
 video_keepalive = None  # legacy; no longer used
+
+esp32_telemetry = Esp32TelemetryService()
+
+# ───────────────────────────────────────────────────────────────
+# Telemetry (ESP32-C3 IMU)
+# ───────────────────────────────────────────────────────────────
+@app.get("/telemetry")
+async def get_telemetry():
+    return esp32_telemetry.get_latest()
+
+
+@app.post("/settings/esp32_url")
+async def set_esp32_url(url: str):
+    esp32_telemetry.set_url(url)
+    return {"ok": True, "url": url}
+
+
+@app.get("/settings/esp32_url")
+async def get_esp32_url():
+    return {"url": esp32_telemetry.get_url()}
+
+
+# ───────────────────────────────────────────────────────────────
+# Trim (software drift correction for cooingdv/E88 family)
+# ───────────────────────────────────────────────────────────────
+@app.get("/trim")
+async def get_trim():
+    return config_store.get("trim")
+
+
+@app.post("/trim")
+async def set_trim(roll: int = 0, pitch: int = 0, yaw: int = 0, throttle: int = 0):
+    LIMIT = 20
+    values = {
+        "roll":     max(-LIMIT, min(LIMIT, roll)),
+        "pitch":    max(-LIMIT, min(LIMIT, pitch)),
+        "yaw":      max(-LIMIT, min(LIMIT, yaw)),
+        "throttle": max(-LIMIT, min(LIMIT, throttle)),
+    }
+    config_store.update_and_save("trim", values)
+    if flight_controller and hasattr(flight_controller.model, "trim_roll"):
+        flight_controller.model.trim_roll     = values["roll"]
+        flight_controller.model.trim_pitch    = values["pitch"]
+        flight_controller.model.trim_yaw      = values["yaw"]
+        flight_controller.model.trim_throttle = values["throttle"]
+        logger.info("[trim] Applied live: %s", values)
+    return {"ok": True, **values}
+
 
 # ───────────────────────────────────────────────────────────────
 # Plugin Management

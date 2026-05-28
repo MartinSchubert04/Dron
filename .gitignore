@@ -177,3 +177,4 @@ CLAUDE.md
 src/app-controller/android
 src/app-controller/.expo
 .pio
+.claude

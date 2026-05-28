@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useState } from 'react
 
 interface Settings {
   backendHost: string;
+  esp32Url: string;
 }
 
 interface SettingsContextValue {
@@ -13,6 +14,7 @@ interface SettingsContextValue {
 
 const DEFAULT_SETTINGS: Settings = {
   backendHost: 'localhost:8000',
+  esp32Url: '',
 };
 
 const LS_KEY = 'turbodrone_settings';

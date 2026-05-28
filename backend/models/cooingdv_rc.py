@@ -48,6 +48,13 @@ class CooingdvRcModel(BaseRCModel):
 
         self.strategy = IncrementalStrategy()
 
+        # Software trim — persistent center offsets to correct axis drift
+        # Added to the raw stick value before sending; range ±20
+        self.trim_roll:     int = 0
+        self.trim_pitch:    int = 0
+        self.trim_yaw:      int = 0
+        self.trim_throttle: int = 0
+
         # One-shot command flags
         self.takeoff_flag = False
         self.land_flag = False          # Soft landing (0x02)
