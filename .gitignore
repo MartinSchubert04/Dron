@@ -178,3 +178,9 @@ src/app-controller/android
 src/app-controller/.expo
 .pio
 .claude
+
+# ------------------------
+# ESP32-C3 (PlatformIO)
+# ------------------------
+esp32-c3/.pio/
+esp32-c3/.vscode/

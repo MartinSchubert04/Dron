@@ -15,6 +15,19 @@ import { NippleJoysticks } from './components/NippleJoysticks';
 import { ThreeDPage } from './pages/ThreeDPage';
 import { ConfigPage } from './pages/ConfigPage';
 
+function FlipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
+         strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+      <path d="M3 12a9 9 0 1 0 9-9" />
+      <polyline points="3 3 3 9 9 9" />
+      <line x1="12" y1="8" x2="12" y2="16" />
+      <line x1="9" y1="11" x2="12" y2="8" />
+      <line x1="15" y1="11" x2="12" y2="8" />
+    </svg>
+  );
+}
+
 function GearIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"
@@ -37,6 +50,7 @@ function App() {
   const { apiBase } = useSettings();
   const [activeTab, setActiveTab]   = useState<Tab>("control");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [videoFlipped, setVideoFlipped] = useState(false);
 
   const {
     axes, mode, setMode, connState, gamepadConnected,
@@ -65,7 +79,7 @@ function App() {
       {/* ── CONTROL tab ── */}
       {activeTab === "control" && (
         <div className="relative flex-1 overflow-hidden bg-black">
-          <VideoFeed src={`${apiBase}/mjpeg`} />
+          <VideoFeed src={`${apiBase}/mjpeg`} flipped={videoFlipped} />
           <DrawingOverlay />
 
           <ControlsOverlay
@@ -95,6 +109,17 @@ function App() {
           <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
             <FollowThrottleButton />
             <VoiceControl onTakeoff={takeOff} onLand={land} onSpeed={setSpeedTier} />
+            <button
+              onClick={() => setVideoFlipped(f => !f)}
+              className={`p-2 rounded-lg transition-colors ${
+                videoFlipped
+                  ? "text-white bg-blue-600/80 hover:bg-blue-700/80"
+                  : "text-white/40 hover:text-white bg-black/30 hover:bg-black/60"
+              }`}
+              title="Dar vuelta la cámara 180°"
+            >
+              <FlipIcon />
+            </button>
             <button
               onClick={() => setSettingsOpen(true)}
               className="p-2 text-white/40 hover:text-white bg-black/30 hover:bg-black/60
