@@ -184,3 +184,4 @@ src/app-controller/.expo
 # ------------------------
 esp32-c3/.pio/
 esp32-c3/.vscode/
+mobile/android
