@@ -348,20 +348,20 @@ class CooingdvRcProtocolAdapter(BaseProtocolAdapter):
         pkt = bytearray(9)
         pkt[0] = self.PREFIX
         pkt[1] = self.START_MARKER
-        pkt[2] = self._clamp_axis(model.roll)
-        pkt[3] = self._clamp_axis(model.pitch)
-        pkt[4] = self._clamp_axis(model.throttle)
-        pkt[5] = self._clamp_axis(model.yaw)
+        pkt[2] = self._clamp_with_trim(model.roll,     model.trim_roll)
+        pkt[3] = self._clamp_with_trim(model.pitch,    model.trim_pitch)
+        pkt[4] = self._clamp_with_trim(model.throttle, model.trim_throttle)
+        pkt[5] = self._clamp_with_trim(model.yaw,      model.trim_yaw)
         pkt[6] = self._build_tc_flags(model)
         pkt[7] = self._calculate_checksum(pkt[2:7])
         pkt[8] = self.END_MARKER
         return bytes(pkt)
 
     def _build_gl_control_packet(self, model: CooingdvRcModel) -> bytes:
-        roll = self._clamp_axis(model.roll)
-        pitch = self._clamp_axis(model.pitch)
-        throttle = self._clamp_axis(model.throttle)
-        yaw = self._clamp_axis(model.yaw)
+        roll     = self._clamp_with_trim(model.roll,     model.trim_roll)
+        pitch    = self._clamp_with_trim(model.pitch,    model.trim_pitch)
+        throttle = self._clamp_with_trim(model.throttle, model.trim_throttle)
+        yaw      = self._clamp_with_trim(model.yaw,      model.trim_yaw)
         flags1, flags2 = self._build_gl_flags(model)
 
         inner = bytearray(20)
@@ -383,6 +383,11 @@ class CooingdvRcProtocolAdapter(BaseProtocolAdapter):
     def _clamp_axis(self, value: float) -> int:
         """Clamp axis values into the byte range used by the apps."""
         clamped = max(1, min(255, int(value)))
+        return clamped & 0xFF
+
+    def _clamp_with_trim(self, value: float, trim: int) -> int:
+        """Apply trim offset and clamp to the safe operating range (50–200)."""
+        clamped = max(50, min(200, int(value) + trim))
         return clamped & 0xFF
 
     def _build_tc_flags(self, model: CooingdvRcModel) -> int:

@@ -7,6 +7,7 @@
    Use as: bg-surface, text-accent, border-frame, text-muted, etc.
    Opacity modifiers work normally: bg-accent/10, border-frame/60, etc.    */
 @theme {
+  --color-bg:       #0c0c14;
   --color-surface:  #16162a;
   --color-frame:    #252545;
   --color-accent:   #4fc3f7;
