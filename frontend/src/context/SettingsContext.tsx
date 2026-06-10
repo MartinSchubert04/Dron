@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import { BACKEND_HOST } from '../config';
 
 interface Settings {
   backendHost: string;
@@ -13,7 +14,7 @@ interface SettingsContextValue {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  backendHost: 'localhost:8000',
+  backendHost: BACKEND_HOST,
   esp32Url: '',
 };
 

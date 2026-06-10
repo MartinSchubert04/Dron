@@ -34,7 +34,7 @@ export function SettingsPanel({ onClose }: Props) {
           value={host}
           onChange={e => setHost(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') onClose(); }}
-          placeholder="localhost:8000"
+          placeholder="localhost:8001"
           autoFocus
           className="w-full bg-gray-800 text-white border border-white/10 rounded px-3 py-2 text-sm font-mono
                      focus:outline-none focus:border-blue-500 transition-colors"
