@@ -1,7 +1,9 @@
 import StaticDrawingOverlay from "../components/StaticDrawingOverlay";
 import { VideoFeed } from "../components/VideoFeed";
+import { useSettings } from "../context/SettingsContext";
 
 export default function TestPage() {
+  const { apiBase } = useSettings();
   return (
     <div className="min-h-screen w-full flex flex-col items-center justify-center bg-gray-900">
       <h1 className="text-2xl font-bold text-white mb-4">
@@ -11,7 +13,7 @@ export default function TestPage() {
         className="relative border-2 border-dashed border-gray-600"
         style={{ width: 640, height: 480 }}
       >
-        <VideoFeed src="http://localhost:8000/mjpeg" />
+        <VideoFeed src={`${apiBase}/mjpeg`} />
         <StaticDrawingOverlay />
       </div>
     </div>
