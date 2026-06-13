@@ -15,10 +15,11 @@
 #define STATIC_DNS 192, 168, 2, 1
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
-// Tras conectarse el ESP32 imprime su IP por Serial.
-// Configurar en el backend:  ESP32_TELEMETRY_URL=http://<IP>/telemetry
-// O desde el frontend en Config → ESP32-C3 (TELEMETRÍA IMU)
 #define SERVER_PORT 80
+
+// ── Telemetría UDP (push ESP32 → backend) ────────────────────────────────────
+#define TELEMETRY_UDP_PORT 4210
+#define TELEMETRY_HZ       20
 
 // ── I2C / MPU-6500 ───────────────────────────────────────────────────────────
 #define I2C_SDA 2

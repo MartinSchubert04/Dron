@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiUDP.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <Wire.h>
@@ -10,13 +11,18 @@
 // ── State ─────────────────────────────────────────────────────────────────────
 
 static WebServer   server(SERVER_PORT);
+static WiFiUDP     udp;
+static IPAddress   broadcastIP;
 static TinyGPSPlus gps;
 
-static bool  imu_ok    = false;
-static float roll_deg  = 0.0f;
-static float pitch_deg = 0.0f;
+static bool  imu_ok       = false;
+static float roll_deg     = 0.0f;
+static float pitch_deg    = 0.0f;
+static float roll_offset  = 0.0f;
+static float pitch_offset = 0.0f;
 
 static unsigned long last_imu_ms = 0;
+static unsigned long last_udp_ms = 0;
 
 // ── IMU – Wire directo (MPU-6500 / MPU-9250) ──────────────────────────────────
 
@@ -83,6 +89,29 @@ static void imuRead(float &ax, float &ay, float &az,
     gz = rd() * GYRO_SCALE;
 }
 
+// ── UDP telemetría push ───────────────────────────────────────────────────────
+
+static void send_telemetry_udp() {
+    bool gps_fix = gps.location.isValid() && gps.location.age() < GPS_MAX_AGE_MS;
+
+    JsonDocument doc;
+    doc["roll"]       = roundf((roll_deg  - roll_offset)  * 100.0f) / 100.0f;
+    doc["pitch"]      = roundf((pitch_deg - pitch_offset) * 100.0f) / 100.0f;
+    doc["imu_ok"]     = imu_ok;
+    doc["gps_ok"]     = gps_fix;
+    doc["satellites"] = gps.satellites.isValid() ? (int)gps.satellites.value() : 0;
+    doc["lat"]        = gps_fix ? gps.location.lat()    : 0.0;
+    doc["lng"]        = gps_fix ? gps.location.lng()    : 0.0;
+    doc["altitude_m"] = (gps_fix && gps.altitude.isValid()) ? gps.altitude.meters() : 0.0;
+    doc["speed_kmh"]  = (gps_fix && gps.speed.isValid())    ? gps.speed.kmph()      : 0.0;
+
+    char buf[256];
+    size_t len = serializeJson(doc, buf, sizeof(buf));
+    udp.beginPacket(broadcastIP, TELEMETRY_UDP_PORT);
+    udp.write((const uint8_t*)buf, len);
+    udp.endPacket();
+}
+
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
 
 static void handle_debug() {
@@ -124,8 +153,8 @@ static void handle_telemetry() {
     JsonDocument doc;
 
     // IMU
-    doc["roll"]   = roundf(roll_deg  * 100.0f) / 100.0f;
-    doc["pitch"]  = roundf(pitch_deg * 100.0f) / 100.0f;
+    doc["roll"]   = roundf((roll_deg  - roll_offset)  * 100.0f) / 100.0f;
+    doc["pitch"]  = roundf((pitch_deg - pitch_offset) * 100.0f) / 100.0f;
     doc["imu_ok"] = imu_ok;
 
     // GPS
@@ -170,9 +199,22 @@ void setup() {
 
     if (imu_ok) {
         float ax, ay, az, gx, gy, gz;
+        // Inicializar con atan2 y luego correr el filtro 50 ciclos (~500ms)
+        // para que se estabilice antes de capturar el offset de montaje.
         imuRead(ax, ay, az, gx, gy, gz);
         roll_deg  = atan2f(ay, az)                    * RAD_TO_DEG;
         pitch_deg = atan2f(-ax, sqrtf(ay*ay + az*az)) * RAD_TO_DEG;
+        for (int i = 0; i < 50; i++) {
+            imuRead(ax, ay, az, gx, gy, gz);
+            float dt = IMU_LOOP_MS / 1000.0f;
+            float ar = atan2f(ay, az)                    * RAD_TO_DEG;
+            float ap = atan2f(-ax, sqrtf(ay*ay + az*az)) * RAD_TO_DEG;
+            roll_deg  = ALPHA * (roll_deg  + gx * dt) + (1.0f - ALPHA) * ar;
+            pitch_deg = ALPHA * (pitch_deg + gy * dt) + (1.0f - ALPHA) * ap;
+            delay(IMU_LOOP_MS);
+        }
+        roll_offset  = roll_deg;
+        pitch_offset = pitch_deg;
     }
 
     // GPS
@@ -194,6 +236,9 @@ void setup() {
     String ip = WiFi.localIP().toString();
     LOG("\n[WiFi] IP: %s\n", ip.c_str());
 
+    broadcastIP = IPAddress((uint32_t)WiFi.localIP() | ~(uint32_t)WiFi.subnetMask());
+    udp.begin(TELEMETRY_UDP_PORT);
+
     if (MDNS.begin(MDNS_HOSTNAME)) {
         MDNS.addService("http", "tcp", SERVER_PORT);
         LOG("[mDNS] http://%s.local/telemetry\n", MDNS_HOSTNAME);
@@ -211,14 +256,17 @@ void setup() {
 // ── Loop ──────────────────────────────────────────────────────────────────────
 
 void loop() {
-    // GPS: drenar UART antes de cualquier otra cosa para no perder bytes
-    while (Serial1.available()) {
-        gps.encode(Serial1.read());
-    }
+    unsigned long now = millis();
+
+    while (Serial1.available()) gps.encode(Serial1.read());
 
     server.handleClient();
 
-    unsigned long now = millis();
+    if (now - last_udp_ms >= (1000U / TELEMETRY_HZ)) {
+        last_udp_ms = now;
+        send_telemetry_udp();
+    }
+
     if (now - last_imu_ms < (unsigned long)IMU_LOOP_MS) return;
     last_imu_ms = now;
 
