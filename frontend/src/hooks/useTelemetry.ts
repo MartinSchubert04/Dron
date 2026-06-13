@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSettings } from "../context/SettingsContext";
 
 export interface TelemetryData {
-  roll:      number;
-  pitch:     number;
-  imu_ok:    boolean;
-  connected: boolean;
+  roll:     number;
+  pitch:    number;
+  imu_ok:   boolean;
+  esp32_ok: boolean;
+  gps_ok:   boolean;
 }
 
-const EMPTY: TelemetryData = { roll: 0, pitch: 0, imu_ok: false, connected: false };
+const EMPTY: TelemetryData = { roll: 0, pitch: 0, imu_ok: false, esp32_ok: false, gps_ok: false };
 
 export function useTelemetry(pollHz = 10) {
   const { apiBase } = useSettings();
@@ -25,10 +26,11 @@ export function useTelemetry(pollHz = 10) {
         roll:      Number(json.roll  ?? 0),
         pitch:     Number(json.pitch ?? 0),
         imu_ok:    Boolean(json.imu_ok),
-        connected: Boolean(json.connected),
+        esp32_ok: Boolean(json.esp32_ok),
+        gps_ok:   Boolean(json.gps_ok),
       });
     } catch {
-      setData(prev => ({ ...prev, connected: false }));
+      setData(prev => ({ ...prev, esp32_ok: false }));
     }
   }, [apiBase]);
 

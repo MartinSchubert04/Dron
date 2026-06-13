@@ -1,40 +1,39 @@
 import asyncio
+import http.client
 import json
 import logging
 import os
-import socket
-import time
+import urllib.parse
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_UDP_PORT = int(os.getenv("ESP32_UDP_PORT", "4210"))
-_DISCONNECT_TIMEOUT = 3.0  # seconds without a packet → mark disconnected
+_POLL_INTERVAL = 0.1    # 10 Hz target
+_REQUEST_TIMEOUT = 0.4  # ESP32 WiFi RTT should be <50ms; 400ms gives margin
 
 
 class Esp32TelemetryService:
-    """Receives telemetry pushed by the ESP32-C3 via UDP broadcast (port 4210).
-
-    The ESP32 broadcasts a JSON packet at ~20 Hz; this service listens passively
-    and updates _latest on each received packet. No polling, no TCP overhead.
-    """
+    """Polls an ESP32-C3 IMU endpoint and caches the latest reading."""
 
     def __init__(self) -> None:
+        raw = os.getenv("ESP32_TELEMETRY_URL", "").strip()
+        self._url: str = raw
         self._latest: dict = {
-            "roll": 0.0, "pitch": 0.0, "imu_ok": False, "connected": False,
-            "gps_fix": False, "satellites": 0,
+            "roll": 0.0, "pitch": 0.0, "imu_ok": False, "esp32_ok": False,
+            "gps_ok": False, "satellites": 0,
             "lat": 0.0, "lng": 0.0, "altitude_m": 0.0, "speed_kmh": 0.0,
         }
         self._task: Optional[asyncio.Task] = None
         self._running = False
-        self._last_packet: float = 0.0
-        # Kept for backward-compat with /settings/esp32_url API; not used for transport
-        self._url: str = os.getenv("ESP32_TELEMETRY_URL", "").strip()
+        self._conn: Optional[http.client.HTTPConnection] = None
 
     # ── Public API ──────────────────────────────────────────────────────────
 
     def set_url(self, url: str) -> None:
+        if url.strip() != self._url:
+            self._close_conn()
         self._url = url.strip()
+        logger.info("[esp32] telemetry URL → %s", self._url or "(cleared)")
 
     def get_url(self) -> str:
         return self._url
@@ -46,60 +45,88 @@ class Esp32TelemetryService:
 
     def start(self) -> None:
         self._running = True
-        self._task = asyncio.get_event_loop().create_task(self._listen_loop())
-        logger.info("[esp32] UDP listener started on 0.0.0.0:%d", _UDP_PORT)
+        self._task = asyncio.get_event_loop().create_task(self._poll_loop())
+        logger.info("[esp32] telemetry poller started (url=%s)", self._url or "not set")
 
     def stop(self) -> None:
         self._running = False
         if self._task and not self._task.done():
             self._task.cancel()
+        self._close_conn()
 
     # ── Internal ─────────────────────────────────────────────────────────────
 
-    async def _listen_loop(self) -> None:
+    def _close_conn(self) -> None:
+        if self._conn:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    async def _poll_loop(self) -> None:
         loop = asyncio.get_event_loop()
+        while self._running:
+            if not self._url:
+                await asyncio.sleep(_POLL_INTERVAL)
+                continue
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("", _UDP_PORT))
-        sock.setblocking(False)
-        logger.info("[esp32] listening on 0.0.0.0:%d", _UDP_PORT)
+            deadline = loop.time() + _POLL_INTERVAL
+
+            try:
+                data = await loop.run_in_executor(None, self._fetch)
+                if data is not None:
+                    self._latest = {
+                        "roll":       float(data.get("roll", 0.0)),
+                        "pitch":      float(data.get("pitch", 0.0)),
+                        "imu_ok":     bool(data.get("imu_ok", True)),
+                        "esp32_ok":   True,
+                        "gps_ok":     bool(data.get("gps_ok", False)),
+                        "satellites": int(data.get("satellites", 0)),
+                        "lat":        float(data.get("lat", 0.0)),
+                        "lng":        float(data.get("lng", 0.0)),
+                        "altitude_m": float(data.get("altitude_m", 0.0)),
+                        "speed_kmh":  float(data.get("speed_kmh", 0.0)),
+                    }
+                else:
+                    self._latest["esp32_ok"] = False
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                self._latest["esp32_ok"] = False
+                logger.debug("[esp32] poll error: %s", exc)
+
+            remaining = deadline - loop.time()
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+
+    def _fetch(self) -> Optional[dict]:
+        parsed = urllib.parse.urlparse(self._url)
+        host   = parsed.hostname or ""
+        port   = parsed.port or 80
+        path   = (parsed.path or "/") + (f"?{parsed.query}" if parsed.query else "")
 
         try:
-            while self._running:
-                try:
-                    data, _addr = await asyncio.wait_for(
-                        loop.sock_recvfrom(sock, 1024),
-                        timeout=_DISCONNECT_TIMEOUT,
-                    )
-                    self._handle_packet(data)
-                except asyncio.TimeoutError:
-                    if self._last_packet > 0:
-                        self._latest["connected"] = False
-                        logger.debug("[esp32] no packet for %.1fs → disconnected", _DISCONNECT_TIMEOUT)
-                except asyncio.CancelledError:
-                    break
-                except Exception as exc:
-                    logger.debug("[esp32] recv error: %s", exc)
-                    await asyncio.sleep(0.05)
-        finally:
-            sock.close()
+            if self._conn is None:
+                self._conn = http.client.HTTPConnection(host, port, timeout=_REQUEST_TIMEOUT)
 
-    def _handle_packet(self, data: bytes) -> None:
-        try:
-            j = json.loads(data)
-            self._latest = {
-                "roll":       float(j.get("roll",       0.0)),
-                "pitch":      float(j.get("pitch",      0.0)),
-                "imu_ok":     bool(j.get("imu_ok",     False)),
-                "connected":  True,
-                "gps_fix":    bool(j.get("gps_fix",    False)),
-                "satellites": int(j.get("satellites",   0)),
-                "lat":        float(j.get("lat",        0.0)),
-                "lng":        float(j.get("lng",        0.0)),
-                "altitude_m": float(j.get("altitude_m", 0.0)),
-                "speed_kmh":  float(j.get("speed_kmh",  0.0)),
-            }
-            self._last_packet = time.monotonic()
-        except Exception as exc:
-            logger.debug("[esp32] packet parse error: %s", exc)
+            self._conn.request("GET", path)
+            resp = self._conn.getresponse()
+            body = resp.read()
+            if resp.will_close:
+                self._close_conn()
+            return json.loads(body)
+
+        except Exception:
+            self._close_conn()
+            try:
+                self._conn = http.client.HTTPConnection(host, port, timeout=_REQUEST_TIMEOUT)
+                self._conn.request("GET", path)
+                resp = self._conn.getresponse()
+                body = resp.read()
+                if resp.will_close:
+                    self._close_conn()
+                return json.loads(body)
+            except Exception:
+                self._close_conn()
+                return None

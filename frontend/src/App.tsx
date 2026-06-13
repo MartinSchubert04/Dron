@@ -71,7 +71,7 @@ function App() {
         activeTab={activeTab}
         setTab={setActiveTab}
         connState={connState}
-        imuConnected={telemetry.connected}
+        imuConnected={telemetry.esp32_ok}
         roll={telemetry.roll}
         pitch={telemetry.pitch}
       />

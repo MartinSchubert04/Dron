@@ -13,7 +13,7 @@ export function DroneView3D({ telemetry }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inited       = useRef(false);
 
-  const { roll, pitch, imu_ok, connected } = telemetry;
+  const { roll, pitch, imu_ok, esp32_ok, gps_ok } = telemetry;
   const { axisInvert, updateSettings } = useSettings();
 
   useEffect(() => {
@@ -63,8 +63,9 @@ export function DroneView3D({ telemetry }: Props) {
         <HudRow label="ROLL"  value={`${roll.toFixed(1)}°`} />
         <HudRow label="PITCH" value={`${pitch.toFixed(1)}°`} />
         <HudRow label="IMU"   value={imu_ok ? 'OK' : 'FALLO'} valueClass={imuColor} />
-        <HudRow label="ESP32" value={connected ? 'Online' : 'Offline'}
-                valueClass={connected ? 'text-success' : 'text-danger'} />
+        <HudRow label="GPS"   value={gps_ok ? 'OK' : 'FALLO'} valueClass={gps_ok ? 'text-success' : 'text-danger'} />
+        <HudRow label="ESP32" value={esp32_ok ? 'Online' : 'Offline'}
+                valueClass={esp32_ok ? 'text-success' : 'text-danger'} />
       </div>
 
       {/* Botones inversión de ejes */}
@@ -98,11 +99,11 @@ export function DroneView3D({ telemetry }: Props) {
       </div>
 
       {/* Overlay cuando no hay conexión */}
-      {!connected && (
+      {!esp32_ok && (
         <div className="absolute inset-0 flex items-center justify-center
                         bg-black/60 backdrop-blur-sm pointer-events-none">
           <span className="text-muted text-xs tracking-widest">
-            ESP32 sin conexión — esperando telemetría UDP
+            ESP32 sin conexión — configurá la URL en Config
           </span>
         </div>
       )}
