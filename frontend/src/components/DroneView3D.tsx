@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { init3D, updateAngles, updateMotors, resize3D, dispose3D } from '../drone3d';
 import type { TelemetryData } from '../hooks/useTelemetry';
+import { useSettings } from '../context/SettingsContext';
+import type { AxisInvert } from '../context/SettingsContext';
 
 interface Props {
   telemetry: TelemetryData;
@@ -11,7 +13,8 @@ export function DroneView3D({ telemetry }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const inited       = useRef(false);
 
-  const { roll, pitch, imu_ok, connected } = telemetry;
+  const { roll, pitch, imu_ok, esp32_ok, gps_ok } = telemetry;
+  const { axisInvert, updateSettings } = useSettings();
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -31,13 +34,20 @@ export function DroneView3D({ telemetry }: Props) {
   }, []);
 
   useEffect(() => {
-    if (inited.current) updateAngles(roll, pitch);
-  }, [roll, pitch]);
+    if (inited.current) updateAngles(
+      roll,
+      pitch,
+      axisInvert.roll     ? -1 : 1,
+      axisInvert.pitch    ? -1 : 1,
+    );
+  }, [roll, pitch, axisInvert.roll, axisInvert.pitch]);
 
-  // Toy drones don't expose per-motor PWM — keep propellers at a gentle idle
   useEffect(() => {
     if (inited.current) updateMotors([60, 60, 60, 60]);
   }, []);
+
+  const toggleAxis = (key: keyof AxisInvert) =>
+    updateSettings({ axisInvert: { ...axisInvert, [key]: !axisInvert[key] } });
 
   const imuColor = imu_ok ? 'text-success' : 'text-danger';
 
@@ -53,8 +63,29 @@ export function DroneView3D({ telemetry }: Props) {
         <HudRow label="ROLL"  value={`${roll.toFixed(1)}°`} />
         <HudRow label="PITCH" value={`${pitch.toFixed(1)}°`} />
         <HudRow label="IMU"   value={imu_ok ? 'OK' : 'FALLO'} valueClass={imuColor} />
-        <HudRow label="ESP32" value={connected ? 'Online' : 'Offline'}
-                valueClass={connected ? 'text-success' : 'text-danger'} />
+        <HudRow label="GPS"   value={gps_ok ? 'OK' : 'FALLO'} valueClass={gps_ok ? 'text-success' : 'text-danger'} />
+        <HudRow label="ESP32" value={esp32_ok ? 'Online' : 'Offline'}
+                valueClass={esp32_ok ? 'text-success' : 'text-danger'} />
+      </div>
+
+      {/* Botones inversión de ejes */}
+      <div className="absolute bottom-3 left-3 flex gap-1.5 select-none">
+        {(['throttle', 'yaw', 'pitch', 'roll'] as (keyof AxisInvert)[]).map(key => {
+          const active = axisInvert[key];
+          return (
+            <button
+              key={key}
+              onClick={() => toggleAxis(key)}
+              className={`px-2 py-1 rounded text-[0.5rem] font-mono tracking-widest border transition-all
+                ${active
+                  ? 'border-accent bg-accent/20 text-accent'
+                  : 'border-frame/60 bg-black/30 text-muted hover:border-white/30 hover:text-white'}`}
+            >
+              {key === 'throttle' ? 'THR' : key.toUpperCase()}
+              {active && <span className="ml-1 opacity-70">↕</span>}
+            </button>
+          );
+        })}
       </div>
 
       {/* Leyenda orientación */}
@@ -68,7 +99,7 @@ export function DroneView3D({ telemetry }: Props) {
       </div>
 
       {/* Overlay cuando no hay conexión */}
-      {!connected && (
+      {!esp32_ok && (
         <div className="absolute inset-0 flex items-center justify-center
                         bg-black/60 backdrop-blur-sm pointer-events-none">
           <span className="text-muted text-xs tracking-widest">

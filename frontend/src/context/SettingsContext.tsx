@@ -1,21 +1,33 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { BACKEND_HOST } from '../config';
 
+export interface AxisInvert {
+  throttle: boolean;
+  yaw:      boolean;
+  pitch:    boolean;
+  roll:     boolean;
+}
+
 interface Settings {
   backendHost: string;
-  esp32Url: string;
+  esp32Url:   string;
+  axisInvert: AxisInvert;
 }
 
 interface SettingsContextValue {
   settings: Settings;
   updateSettings: (partial: Partial<Settings>) => void;
-  apiBase: string;
-  wsBase: string;
+  apiBase:     string;
+  wsBase:      string;
+  axisInvert:  AxisInvert;
 }
+
+const DEFAULT_AXIS_INVERT: AxisInvert = { throttle: false, yaw: false, pitch: false, roll: false };
 
 const DEFAULT_SETTINGS: Settings = {
   backendHost: BACKEND_HOST,
-  esp32Url: '',
+  esp32Url:   '',
+  axisInvert: DEFAULT_AXIS_INVERT,
 };
 
 const LS_KEY = 'turbodrone_settings';
@@ -44,8 +56,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<SettingsContextValue>(() => ({
     settings,
     updateSettings,
-    apiBase: `http://${settings.backendHost}`,
-    wsBase:  `ws://${settings.backendHost}`,
+    apiBase:    `http://${settings.backendHost}`,
+    wsBase:     `ws://${settings.backendHost}`,
+    axisInvert: { ...DEFAULT_AXIS_INVERT, ...settings.axisInvert },
   }), [settings, updateSettings]);
 
   return (

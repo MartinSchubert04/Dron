@@ -28,7 +28,9 @@ export type CameraTiltDirection = -1 | 0 | 1;
 /* ─────────────────────────────────────────────────────────── */
 
 export function useControls() {
-  const { apiBase, wsBase } = useSettings();
+  const { apiBase, wsBase, axisInvert } = useSettings();
+  const axisInvertRef = useRef(axisInvert);
+  useEffect(() => { axisInvertRef.current = axisInvert; }, [axisInvert]);
 
   // Stable ref so async closures (maybeStopPluginOnUserInput) always see the
   // latest host even when event-handler closures have staled.
@@ -362,11 +364,15 @@ export function useControls() {
       // This prevents frontend from overwriting plugin commands
       if (pluginRunningRef.current) return;
 
+      const inv = axisInvertRef.current;
       ws.current.send(JSON.stringify({
-        type: "axes",
-        mode: modeRef.current,
+        type:                  "axes",
+        mode:                  modeRef.current,
         camera_tilt_direction: cameraTiltDirectionRef.current,
-        ...axesRef.current,
+        throttle: axesRef.current.throttle * (inv.throttle ? -1 : 1),
+        yaw:      axesRef.current.yaw      * (inv.yaw      ? -1 : 1),
+        pitch:    axesRef.current.pitch    * (inv.pitch     ? -1 : 1),
+        roll:     axesRef.current.roll     * (inv.roll      ? -1 : 1),
       }));
     }, 1000 / 30);
     return () => clearInterval(interval);

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSettings } from '../context/SettingsContext';
+import type { AxisInvert } from '../context/SettingsContext';
 import { TrimPanel } from '../components/TrimPanel';
 import { useTrim } from '../hooks/useTrim';
 
@@ -59,11 +60,56 @@ function Field({
   );
 }
 
+function AxisInvertSection({ axisInvert, onChange }: {
+  axisInvert: AxisInvert;
+  onChange: (key: keyof AxisInvert) => void;
+}) {
+  const axes: { key: keyof AxisInvert; label: string; hint: string }[] = [
+    { key: 'throttle', label: 'THROTTLE', hint: 'Sube / baja' },
+    { key: 'yaw',      label: 'YAW',      hint: 'Gira izq / der' },
+    { key: 'pitch',    label: 'PITCH',    hint: 'Adelante / atrás' },
+    { key: 'roll',     label: 'ROLL',     hint: 'Inclina izq / der' },
+  ];
+
+  return (
+    <Section title="INVERSIÓN DE EJES">
+      <p className="text-muted text-[0.52rem]">
+        Activá el eje que el drone obedece al revés. El cambio es inmediato.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        {axes.map(({ key, label, hint }) => {
+          const active = axisInvert[key];
+          return (
+            <button
+              key={key}
+              onClick={() => onChange(key)}
+              className={`flex flex-col items-start px-3 py-2 rounded border transition-all text-left
+                ${active
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'border-frame text-muted hover:border-white/30 hover:text-white'}`}
+            >
+              <span className="text-[0.65rem] font-mono tracking-widest font-bold">{label}</span>
+              <span className="text-[0.5rem] mt-0.5 opacity-60">{hint}</span>
+              <span className={`text-[0.55rem] font-mono mt-1 ${active ? 'text-accent' : 'text-muted'}`}>
+                {active ? 'INVERTIDO' : 'NORMAL'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
 export function ConfigPage({ esp32Url, setEsp32Url }: Props) {
-  const { settings, updateSettings } = useSettings();
+  const { settings, updateSettings, axisInvert } = useSettings();
   const [localHost, setLocalHost]   = useState(settings.backendHost);
   const [localEsp32, setLocalEsp32] = useState(esp32Url);
   const { trim, setTrimState, save: saveTrim, saving, saveMsg } = useTrim();
+
+  const toggleAxis = (key: keyof AxisInvert) => {
+    updateSettings({ axisInvert: { ...axisInvert, [key]: !axisInvert[key] } });
+  };
 
   const saveHost = () => {
     updateSettings({ backendHost: localHost.trim() });
@@ -96,7 +142,7 @@ export function ConfigPage({ esp32Url, setEsp32Url }: Props) {
           label="URL completa del endpoint de telemetría"
           value={localEsp32}
           onChange={setLocalEsp32}
-          placeholder="http://192.168.1.xx/telemetry"
+          placeholder="http://drone.local/telemetry"
           hint="El backend hace fetch a esta URL (JSON con roll, pitch, imu_ok). Dejá vacío para deshabilitar."
           onSave={saveEsp32}
         />
@@ -113,6 +159,8 @@ export function ConfigPage({ esp32Url, setEsp32Url }: Props) {
           </p>
         </div>
       </Section>
+
+      <AxisInvertSection axisInvert={axisInvert} onChange={toggleAxis} />
 
       <TrimPanel
         trim={trim}
