@@ -1,24 +1,30 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiUDP.h>
 #include <ESPmDNS.h>
 #include <WebServer.h>
 #include <Wire.h>
 #include <ArduinoJson.h>
+#include <TinyGPSPlus.h>
 #include "config.h"
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
-static WebServer server(SERVER_PORT);
+static WebServer   server(SERVER_PORT);
+static WiFiUDP     udp;
+static IPAddress   broadcastIP;
+static TinyGPSPlus gps;
 
 static bool  imu_ok    = false;
 static float roll_deg  = 0.0f;
 static float pitch_deg = 0.0f;
 
 static unsigned long last_imu_ms = 0;
+static unsigned long last_udp_ms = 0;
 
 // ── IMU – Wire directo (MPU-6500 / MPU-9250) ──────────────────────────────────
 
-static uint8_t imuAddr = IMU_ADDR;  // se ajusta automáticamente en imuInit
+static uint8_t imuAddr = IMU_ADDR;
 
 static void imuWrite(uint8_t reg, uint8_t val) {
     Wire.beginTransmission(imuAddr);
@@ -37,11 +43,9 @@ static uint8_t imuWhoAmI(uint8_t addr) {
 }
 
 static bool imuInit() {
-    // Escanear bus y probar 0x68 y 0x69
     for (uint8_t addr : {(uint8_t)0x68, (uint8_t)0x69}) {
         uint8_t who = imuWhoAmI(addr);
         LOG("[IMU] addr=0x%02X  WHO_AM_I=0x%02X\n", addr, who);
-        // MPU-6500=0x70, MPU-9250=0x71, algunos clones=0x68/0x69
         if (who == 0x70 || who == 0x71 || who == 0x68 || who == 0x69) {
             imuAddr = addr;
             LOG("[IMU] Detectado en 0x%02X (WHO_AM_I=0x%02X)\n", addr, who);
@@ -74,11 +78,11 @@ static void imuRead(float &ax, float &ay, float &az,
         return (int16_t)((Wire.read() << 8) | Wire.read());
     };
 
-    ax = rd() * ACCEL_SCALE;  // g
+    ax = rd() * ACCEL_SCALE;
     ay = rd() * ACCEL_SCALE;
     az = rd() * ACCEL_SCALE;
-    rd();                      // temperatura (ignorar)
-    gx = rd() * GYRO_SCALE;   // °/s
+    rd();                     // temperatura (ignorar)
+    gx = rd() * GYRO_SCALE;
     gy = rd() * GYRO_SCALE;
     gz = rd() * GYRO_SCALE;
 }
@@ -86,14 +90,50 @@ static void imuRead(float &ax, float &ay, float &az,
 // ── HTTP handler ──────────────────────────────────────────────────────────────
 
 static void handle_telemetry() {
+    bool gps_fix = gps.location.isValid() &&
+                   gps.location.age() < GPS_MAX_AGE_MS;
+
     JsonDocument doc;
+
+    // IMU
     doc["roll"]   = roundf(roll_deg  * 100.0f) / 100.0f;
     doc["pitch"]  = roundf(pitch_deg * 100.0f) / 100.0f;
     doc["imu_ok"] = imu_ok;
 
+    // GPS
+    doc["gps_fix"]    = gps_fix;
+    doc["satellites"] = gps.satellites.isValid() ? (int)gps.satellites.value() : 0;
+    doc["lat"]        = gps_fix ? gps.location.lat()    : 0.0;
+    doc["lng"]        = gps_fix ? gps.location.lng()    : 0.0;
+    doc["altitude_m"] = (gps_fix && gps.altitude.isValid()) ? gps.altitude.meters() : 0.0;
+    doc["speed_kmh"]  = (gps_fix && gps.speed.isValid())    ? gps.speed.kmph()      : 0.0;
+
     String body;
     serializeJson(doc, body);
     server.send(200, "application/json", body);
+}
+
+// ── UDP telemetría push ───────────────────────────────────────────────────────
+
+static void send_telemetry_udp() {
+    bool gps_fix = gps.location.isValid() && gps.location.age() < GPS_MAX_AGE_MS;
+
+    JsonDocument doc;
+    doc["roll"]       = roundf(roll_deg  * 100.0f) / 100.0f;
+    doc["pitch"]      = roundf(pitch_deg * 100.0f) / 100.0f;
+    doc["imu_ok"]     = imu_ok;
+    doc["gps_fix"]    = gps_fix;
+    doc["satellites"] = gps.satellites.isValid() ? (int)gps.satellites.value() : 0;
+    doc["lat"]        = gps_fix ? gps.location.lat()    : 0.0;
+    doc["lng"]        = gps_fix ? gps.location.lng()    : 0.0;
+    doc["altitude_m"] = (gps_fix && gps.altitude.isValid()) ? gps.altitude.meters() : 0.0;
+    doc["speed_kmh"]  = (gps_fix && gps.speed.isValid())    ? gps.speed.kmph()      : 0.0;
+
+    char buf[256];
+    size_t len = serializeJson(doc, buf, sizeof(buf));
+    udp.beginPacket(broadcastIP, TELEMETRY_UDP_PORT);
+    udp.write((const uint8_t*)buf, len);
+    udp.endPacket();
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
@@ -103,6 +143,7 @@ void setup() {
     delay(400);
     LOG("\n[turbodrone esp32-c3] boot\n");
 
+    // IMU
     Wire.begin(I2C_SDA, I2C_SCL);
     Wire.setClock(400000);
     delay(100);
@@ -110,7 +151,6 @@ void setup() {
     imu_ok = imuInit();
     if (!imu_ok) LOG("[IMU] fallo — revisar cableado y IMU_ADDR en config.h");
 
-    // Inicializar ángulos desde acelerómetro
     if (imu_ok) {
         float ax, ay, az, gx, gy, gz;
         imuRead(ax, ay, az, gx, gy, gz);
@@ -118,12 +158,24 @@ void setup() {
         pitch_deg = atan2f(-ax, sqrtf(ay*ay + az*az)) * RAD_TO_DEG;
     }
 
+    // GPS
+    Serial1.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+    LOG("[GPS] UART1 iniciado — RX=GPIO%d TX=GPIO%d @%d baud\n",
+        GPS_RX_PIN, GPS_TX_PIN, GPS_BAUD);
+
+    // WiFi
     LOG("[WiFi] conectando a %s", WIFI_SSID);
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     while (WiFi.status() != WL_CONNECTED) { delay(300); LOG("."); }
     String ip = WiFi.localIP().toString();
     LOG("\n[WiFi] IP: %s\n", ip.c_str());
+
+    // Broadcast IP: localIP | ~subnetMask (correcto para cualquier prefijo /24, /23, etc.)
+    broadcastIP = IPAddress((uint32_t)WiFi.localIP() | ~(uint32_t)WiFi.subnetMask());
+    udp.begin(TELEMETRY_UDP_PORT);
+    LOG("[UDP] telemetría → %s:%d  @%d Hz\n",
+        broadcastIP.toString().c_str(), TELEMETRY_UDP_PORT, TELEMETRY_HZ);
 
     if (MDNS.begin(MDNS_HOSTNAME)) {
         MDNS.addService("http", "tcp", SERVER_PORT);
@@ -135,15 +187,27 @@ void setup() {
     server.on("/telemetry", HTTP_GET, handle_telemetry);
     server.onNotFound([]() { server.send(404, "text/plain", "not found"); });
     server.begin();
-    LOG("[HTTP] servidor iniciado");
+    LOG("[HTTP] servidor iniciado\n");
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 
 void loop() {
+    unsigned long now = millis();
+
+    // GPS: drenar UART antes de cualquier otra cosa para no perder bytes
+    while (Serial1.available()) {
+        gps.encode(Serial1.read());
+    }
+
     server.handleClient();
 
-    unsigned long now = millis();
+    // UDP push a 20 Hz (independiente del IMU a 100 Hz)
+    if (now - last_udp_ms >= (1000U / TELEMETRY_HZ)) {
+        last_udp_ms = now;
+        send_telemetry_udp();
+    }
+
     if (now - last_imu_ms < (unsigned long)IMU_LOOP_MS) return;
     last_imu_ms = now;
 
@@ -154,7 +218,6 @@ void loop() {
 
     float dt = IMU_LOOP_MS / 1000.0f;
 
-    // Filtro complementario — gx/gy ya están en °/s, no hace falta convertir
     float accel_roll  = atan2f(ay, az)                    * RAD_TO_DEG;
     float accel_pitch = atan2f(-ax, sqrtf(ay*ay + az*az)) * RAD_TO_DEG;
 
@@ -164,6 +227,12 @@ void loop() {
     static uint8_t tick = 0;
     if (++tick >= 100) {
         tick = 0;
-        LOG("[IMU] roll=%.1f°  pitch=%.1f°\n", roll_deg, pitch_deg);
+        bool fix = gps.location.isValid() && gps.location.age() < GPS_MAX_AGE_MS;
+        LOG("[IMU] roll=%.1f°  pitch=%.1f°  |  [GPS] fix=%s  sat=%d  lat=%.6f  lng=%.6f\n",
+            roll_deg, pitch_deg,
+            fix ? "SI" : "NO",
+            gps.satellites.isValid() ? (int)gps.satellites.value() : 0,
+            fix ? gps.location.lat() : 0.0,
+            fix ? gps.location.lng() : 0.0);
     }
 }

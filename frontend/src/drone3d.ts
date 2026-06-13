@@ -2,13 +2,37 @@ import * as THREE from 'three';
 
 // ── Scene state ───────────────────────────────────────────────────────────────
 
-let scene:      THREE.Scene;
-let camera:     THREE.PerspectiveCamera;
-let renderer:   THREE.WebGLRenderer;
-let droneGroup: THREE.Group;
+let scene:        THREE.Scene;
+let camera:       THREE.PerspectiveCamera;
+let renderer:     THREE.WebGLRenderer;
+let droneGroup:   THREE.Group;   // recibe roll/pitch del IMU (espacio local)
+let displayGroup: THREE.Group;   // wrapper solo para la rotación de display (Y)
 let propGroups: THREE.Object3D[] = [];
-let animId = -1;
+let animId     = -1;
+let running    = false;
+let lastTime   = 0;
 let motorSpeeds = [0, 0, 0, 0];
+
+const TWO_PI = 2 * Math.PI;
+
+// ── Animation tick (stable module-level function) ─────────────────────────────
+// Defined outside init3D so there is always exactly ONE function reference,
+// eliminating the "old closure keeps running" problem from StrictMode double-invoke.
+
+function tick(now: number) {
+  if (!running) return;   // dispose3D or a new init3D already stopped us
+  animId = requestAnimationFrame(tick);
+
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  propGroups.forEach((pg, i) => {
+    const rpm = (motorSpeeds[i] / 255) * 60;
+    pg.rotation.y = (pg.rotation.y + rpm * dt * (pg.userData['spinDir'] as number)) % TWO_PI;
+  });
+
+  renderer.render(scene, camera);
+}
 
 // ── Drone geometry ────────────────────────────────────────────────────────────
 
@@ -42,27 +66,22 @@ function buildDrone(): THREE.Group {
   });
 
   // ── Frame plates ─────────────────────────────────────────────────────────────
-  // Bottom plate (main structural plate)
   group.add(new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.022, 0.40), matCarbon));
 
-  // Top plate (raised, smaller)
   const topPlate = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.018, 0.26), matCarbon);
   topPlate.position.y = 0.085;
   group.add(topPlate);
 
-  // 4 aluminum standoffs connecting plates
   for (const [sx, sz] of [[-0.09, -0.09], [0.09, -0.09], [-0.09, 0.09], [0.09, 0.09]]) {
     const s = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.085, 8), matStandoff);
     s.position.set(sx, 0.043, sz);
     group.add(s);
   }
 
-  // FC/ESC stack (electronics)
   const fc = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.038, 0.15), matFC);
   fc.position.y = 0.058;
   group.add(fc);
 
-  // Status LEDs on FC (green=armed, red=error)
   const ledGreen = new THREE.Mesh(
     new THREE.BoxGeometry(0.009, 0.005, 0.009),
     new THREE.MeshPhongMaterial({ color: 0x00ff55, emissive: 0x00cc44, emissiveIntensity: 1 }),
@@ -77,12 +96,10 @@ function buildDrone(): THREE.Group {
   ledRed.position.set(0.040, 0.078, -0.035);
   group.add(ledRed);
 
-  // Battery (on bottom, Lipo pack shape)
   const battery = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.038, 0.080), matBattery);
   battery.position.y = -0.032;
   group.add(battery);
 
-  // Battery connector bump
   const connector = new THREE.Mesh(
     new THREE.BoxGeometry(0.022, 0.018, 0.015),
     new THREE.MeshPhongMaterial({ color: 0x222222 }),
@@ -91,11 +108,9 @@ function buildDrone(): THREE.Group {
   group.add(connector);
 
   // ── Arms + motors + props (X-config) ─────────────────────────────────────────
-  // front=-Z, right=+X
-  // FL=135°, FR=45°, BL=-135°(225°), BR=-45°(315°)
-  const armLen   = 0.84;
+  const armLen    = 0.84;
   const armAngles = [135, 45, -135, -45];
-  const spinDirs  = [1, -1, -1, 1];   // FL/BR=CW, FR/BL=CCW
+  const spinDirs  = [1, -1, -1, 1];
   propGroups = [];
 
   armAngles.forEach((deg, i) => {
@@ -103,12 +118,10 @@ function buildDrone(): THREE.Group {
     const tipX = Math.cos(rad) * armLen / 2;
     const tipZ = -Math.sin(rad) * armLen / 2;
 
-    // Carbon fiber arm (flat, thin)
     const arm = new THREE.Mesh(new THREE.BoxGeometry(armLen, 0.020, 0.036), matArm);
     arm.rotation.y = rad;
     group.add(arm);
 
-    // Motor mount plate
     const mount = new THREE.Mesh(
       new THREE.CylinderGeometry(0.038, 0.038, 0.018, 12),
       matMotorBase,
@@ -116,7 +129,6 @@ function buildDrone(): THREE.Group {
     mount.position.set(tipX, -0.001, tipZ);
     group.add(mount);
 
-    // Motor bell (stator visible below, rotor bell on top)
     const stator = new THREE.Mesh(
       new THREE.CylinderGeometry(0.026, 0.026, 0.028, 12),
       matMotorBase,
@@ -131,7 +143,6 @@ function buildDrone(): THREE.Group {
     bell.position.set(tipX, 0.036, tipZ);
     group.add(bell);
 
-    // Motor shaft
     const shaft = new THREE.Mesh(
       new THREE.CylinderGeometry(0.004, 0.004, 0.022, 6),
       matShaft,
@@ -139,18 +150,15 @@ function buildDrone(): THREE.Group {
     shaft.position.set(tipX, 0.068, tipZ);
     group.add(shaft);
 
-    // ── Propeller group (spins) ──────────────────────────────────────────────
     const propGroup = new THREE.Group();
     propGroup.position.set(tipX, 0.080, tipZ);
     propGroup.userData['spinDir'] = spinDirs[i];
 
-    // Prop hub
     propGroup.add(new THREE.Mesh(
       new THREE.CylinderGeometry(0.018, 0.018, 0.012, 12),
       new THREE.MeshPhongMaterial({ color: 0x282840 }),
     ));
 
-    // 2 blades — CW props slightly darker blue, CCW slightly darker (visual cue)
     const bladeColor = spinDirs[i] > 0 ? 0x18182e : 0x281818;
     const bladeEmit  = spinDirs[i] > 0 ? 0x07071a : 0x1a0707;
     const bladeMat = new THREE.MeshPhongMaterial({
@@ -164,7 +172,7 @@ function buildDrone(): THREE.Group {
         bladeMat,
       );
       blade.rotation.y  = b * Math.PI;
-      blade.rotation.z  = spinDirs[i] * 0.10;  // prop pitch
+      blade.rotation.z  = spinDirs[i] * 0.10;
       propGroup.add(blade);
     }
 
@@ -172,7 +180,7 @@ function buildDrone(): THREE.Group {
     propGroups.push(propGroup);
   });
 
-  // ── FPV camera (front center, -Z) ────────────────────────────────────────────
+  // ── FPV camera ───────────────────────────────────────────────────────────────
   const camBody = new THREE.Mesh(
     new THREE.BoxGeometry(0.044, 0.038, 0.028),
     new THREE.MeshPhongMaterial({ color: 0x0e0e1e, shininess: 50 }),
@@ -189,7 +197,6 @@ function buildDrone(): THREE.Group {
   group.add(lens);
 
   // ── Navigation lights ─────────────────────────────────────────────────────────
-  // Left = red (port), Right = green (starboard) — standard aviation convention
   const navLeft = new THREE.Mesh(
     new THREE.SphereGeometry(0.009, 8, 6),
     new THREE.MeshPhongMaterial({ color: 0xff2222, emissive: 0xff0000, emissiveIntensity: 1.0 }),
@@ -204,7 +211,6 @@ function buildDrone(): THREE.Group {
   navRight.position.set(0.19, 0.013, 0);
   group.add(navRight);
 
-  // Tail strobe (back, white)
   const strobe = new THREE.Mesh(
     new THREE.SphereGeometry(0.007, 8, 6),
     new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0xaaaacc, emissiveIntensity: 0.8 }),
@@ -218,6 +224,11 @@ function buildDrone(): THREE.Group {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function init3D(canvas: HTMLCanvasElement) {
+  // Stop any running loop and release GPU resources BEFORE building the new scene
+  running = false;
+  if (animId !== -1) { cancelAnimationFrame(animId); animId = -1; }
+  if (renderer) renderer.dispose();
+
   const w = canvas.clientWidth  || 400;
   const h = canvas.clientHeight || 300;
 
@@ -234,20 +245,16 @@ export function init3D(canvas: HTMLCanvasElement) {
   renderer.setSize(w, h, false);
 
   // ── Lighting ────────────────────────────────────────────────────────────────
-  // Soft ambient
   scene.add(new THREE.AmbientLight(0xffffff, 0.30));
 
-  // Main key light (top-right-front, warm-white)
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
   key.position.set(2.5, 5, 3);
   scene.add(key);
 
-  // Fill light (blue-ish, left side)
   const fill = new THREE.DirectionalLight(0x8899ff, 0.45);
   fill.position.set(-3, 1, -1);
   scene.add(fill);
 
-  // Rim light (from below-back for drama)
   const rim = new THREE.DirectionalLight(0x4fc3f7, 0.35);
   rim.position.set(0, -3, -4);
   scene.add(rim);
@@ -257,7 +264,6 @@ export function init3D(canvas: HTMLCanvasElement) {
   grid.position.y = -0.65;
   scene.add(grid);
 
-  // Thin horizon line (accent color)
   const horizGeo = new THREE.PlaneGeometry(6, 6);
   const horizMat = new THREE.MeshBasicMaterial({
     color: 0x0c0c18, transparent: true, opacity: 0.7,
@@ -267,33 +273,24 @@ export function init3D(canvas: HTMLCanvasElement) {
   horizon.position.y = -0.651;
   scene.add(horizon);
 
-  // Small axis helper at corner
   const axes = new THREE.AxesHelper(0.40);
   axes.position.set(-1.9, -0.64, -1.9);
   scene.add(axes);
 
   // ── Drone ────────────────────────────────────────────────────────────────────
   droneGroup = buildDrone();
-  scene.add(droneGroup);
 
-  // Restart animation loop
-  if (animId !== -1) cancelAnimationFrame(animId);
+  // displayGroup rota solo para la vista; droneGroup aplica roll/pitch en su
+  // propio espacio local, independiente de esta rotación de display.
+  displayGroup = new THREE.Group();
+  displayGroup.rotation.y = Math.PI;
+  displayGroup.add(droneGroup);
+  scene.add(displayGroup);
 
-  let last = performance.now();
-  function animate(now: number) {
-    animId = requestAnimationFrame(animate);
-    const dt = Math.min((now - last) / 1000, 0.05);
-    last = now;
-
-    // Spin each propeller group proportional to its motor speed
-    propGroups.forEach((pg, i) => {
-      const rpm = (motorSpeeds[i] / 255) * 60;  // rad/s at full throttle
-      pg.rotation.y += rpm * dt * (pg.userData['spinDir'] as number);
-    });
-
-    renderer.render(scene, camera);
-  }
-  animate(performance.now());
+  // Start the stable module-level tick loop
+  lastTime = performance.now();
+  running  = true;
+  animId   = requestAnimationFrame(tick);
 }
 
 // signRoll / signPitch vienen de cfg.signRoll / cfg.signPitch en el firmware.
@@ -320,5 +317,19 @@ export function resize3D(canvas: HTMLCanvasElement) {
 }
 
 export function dispose3D() {
+  running = false;   // stops tick() even if a rAF callback slips through
   if (animId !== -1) { cancelAnimationFrame(animId); animId = -1; }
+
+  if (scene) {
+    scene.traverse(obj => {
+      if (obj instanceof THREE.Mesh) {
+        obj.geometry.dispose();
+        const mat = obj.material;
+        if (Array.isArray(mat)) mat.forEach(m => m.dispose());
+        else mat.dispose();
+      }
+    });
+  }
+
+  if (renderer) renderer.dispose();
 }
