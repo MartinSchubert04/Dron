@@ -131,8 +131,8 @@ export function ConfigPage({ esp32Url, setEsp32Url }: Props) {
           label="Host"
           value={localHost}
           onChange={setLocalHost}
-          placeholder="localhost:8001"
-          hint="Dirección y puerto del servidor FastAPI. Ej: 192.168.1.10:8001"
+          placeholder="localhost:8000"
+          hint="Dirección y puerto del servidor FastAPI. Ej: 192.168.1.10:8000"
           onSave={saveHost}
         />
       </Section>

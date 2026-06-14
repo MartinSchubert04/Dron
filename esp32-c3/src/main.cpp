@@ -141,6 +141,21 @@ static void handle_debug() {
     doc["imu_ok"]   = imu_ok;
     doc["imu_addr"] = imuAddr;
 
+    // GPS
+    bool gps_fix = gps.location.isValid() && gps.location.age() < GPS_MAX_AGE_MS;
+    JsonObject gpsObj = doc["gps"].to<JsonObject>();
+    gpsObj["fix"]             = gps_fix;
+    gpsObj["chars_processed"] = gps.charsProcessed();
+    gpsObj["sentences_ok"]    = gps.sentencesWithFix();
+    gpsObj["failed_checksum"] = gps.failedChecksum();
+    gpsObj["satellites"]      = gps.satellites.isValid() ? (int)gps.satellites.value() : -1;
+    gpsObj["location_valid"]  = gps.location.isValid();
+    gpsObj["location_age_ms"] = gps.location.isValid() ? (int)gps.location.age() : -1;
+    gpsObj["lat"]             = gps.location.isValid() ? gps.location.lat() : 0.0;
+    gpsObj["lng"]             = gps.location.isValid() ? gps.location.lng() : 0.0;
+    gpsObj["hdop"]            = gps.hdop.isValid() ? gps.hdop.hdop() : -1.0;
+    gpsObj["altitude_m"]      = gps.altitude.isValid() ? gps.altitude.meters() : 0.0;
+
     String body;
     serializeJson(doc, body);
     server.send(200, "application/json", body);

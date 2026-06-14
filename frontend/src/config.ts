@@ -1,1 +1,1 @@
-export const BACKEND_HOST = import.meta.env.VITE_BACKEND_HOST ?? 'localhost:8001'
+export const BACKEND_HOST = import.meta.env.VITE_BACKEND_HOST ?? 'localhost:8000'
